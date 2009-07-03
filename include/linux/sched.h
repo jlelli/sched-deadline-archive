@@ -2023,8 +2023,12 @@ static inline void sched_autogroup_exit(struct signal_struct *sig) { }
 #endif
 
 #ifdef CONFIG_RT_MUTEXES
+extern void task_setprio(struct task_struct *p, int prio);
 extern int rt_mutex_getprio(struct task_struct *p);
-extern void rt_mutex_setprio(struct task_struct *p, int prio);
+static inline void rt_mutex_setprio(struct task_struct *p, int prio)
+{
+	task_setprio(p, prio);
+}
 extern void rt_mutex_adjust_pi(struct task_struct *p);
 #else
 static inline int rt_mutex_getprio(struct task_struct *p)
