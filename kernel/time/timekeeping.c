@@ -139,8 +139,7 @@ static inline s64 timekeeping_get_ns_raw(void)
  * This read-write spinlock protects us from races in SMP while
  * playing with xtime.
  */
-__cacheline_aligned_in_smp DEFINE_SEQLOCK(xtime_lock);
-
+__cacheline_aligned_in_smp DEFINE_RAW_SEQLOCK(xtime_lock);
 
 /*
  * The current time
@@ -361,7 +360,7 @@ int do_settimeofday(const struct timespec *tv)
 	if ((unsigned long)tv->tv_nsec >= NSEC_PER_SEC)
 		return -EINVAL;
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	raw_write_seqlock_irqsave(&xtime_lock, flags);
 
 	timekeeping_forward_now();
 
@@ -377,7 +376,7 @@ int do_settimeofday(const struct timespec *tv)
 	update_vsyscall(&xtime, &wall_to_monotonic, timekeeper.clock,
 				timekeeper.mult);
 
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	raw_write_sequnlock_irqrestore(&xtime_lock, flags);
 
 	/* signal hrtimers about time change */
 	clock_was_set();
@@ -401,7 +400,7 @@ int timekeeping_inject_offset(struct timespec *ts)
 	if ((unsigned long)ts->tv_nsec >= NSEC_PER_SEC)
 		return -EINVAL;
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	raw_write_seqlock_irqsave(&xtime_lock, flags);
 
 	timekeeping_forward_now();
 
@@ -414,7 +413,7 @@ int timekeeping_inject_offset(struct timespec *ts)
 	update_vsyscall(&xtime, &wall_to_monotonic, timekeeper.clock,
 				timekeeper.mult);
 
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	raw_write_sequnlock_irqrestore(&xtime_lock, flags);
 
 	/* signal hrtimers about time change */
 	clock_was_set();
@@ -568,7 +567,7 @@ void __init timekeeping_init(void)
 	read_persistent_clock(&now);
 	read_boot_clock(&boot);
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	raw_write_seqlock_irqsave(&xtime_lock, flags);
 
 	ntp_init();
 
@@ -589,7 +588,7 @@ void __init timekeeping_init(void)
 				-boot.tv_sec, -boot.tv_nsec);
 	total_sleep_time.tv_sec = 0;
 	total_sleep_time.tv_nsec = 0;
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	raw_write_sequnlock_irqrestore(&xtime_lock, flags);
 }
 
 /* time in seconds when suspend began */
@@ -630,7 +629,7 @@ void timekeeping_inject_sleeptime(struct timespec *delta)
 	if (!(ts.tv_sec == 0 && ts.tv_nsec == 0))
 		return;
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	raw_write_seqlock_irqsave(&xtime_lock, flags);
 	timekeeping_forward_now();
 
 	__timekeeping_inject_sleeptime(delta);
@@ -640,7 +639,7 @@ void timekeeping_inject_sleeptime(struct timespec *delta)
 	update_vsyscall(&xtime, &wall_to_monotonic, timekeeper.clock,
 				timekeeper.mult);
 
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	raw_write_sequnlock_irqrestore(&xtime_lock, flags);
 
 	/* signal hrtimers about time change */
 	clock_was_set();
@@ -663,7 +662,7 @@ static void timekeeping_resume(void)
 
 	clocksource_resume();
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	raw_write_seqlock_irqsave(&xtime_lock, flags);
 
 	if (timespec_compare(&ts, &timekeeping_suspend_time) > 0) {
 		ts = timespec_sub(ts, timekeeping_suspend_time);
@@ -673,7 +672,7 @@ static void timekeeping_resume(void)
 	timekeeper.clock->cycle_last = timekeeper.clock->read(timekeeper.clock);
 	timekeeper.ntp_error = 0;
 	timekeeping_suspended = 0;
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	raw_write_sequnlock_irqrestore(&xtime_lock, flags);
 
 	touch_softlockup_watchdog();
 
@@ -689,10 +688,10 @@ static int timekeeping_suspend(void)
 
 	read_persistent_clock(&timekeeping_suspend_time);
 
-	write_seqlock_irqsave(&xtime_lock, flags);
+	raw_write_seqlock_irqsave(&xtime_lock, flags);
 	timekeeping_forward_now();
 	timekeeping_suspended = 1;
-	write_sequnlock_irqrestore(&xtime_lock, flags);
+	raw_write_sequnlock_irqrestore(&xtime_lock, flags);
 
 	clockevents_notify(CLOCK_EVT_NOTIFY_SUSPEND, NULL);
 	clocksource_suspend();
@@ -1121,7 +1120,7 @@ ktime_t ktime_get_monotonic_offset(void)
  */
 void xtime_update(unsigned long ticks)
 {
-	write_seqlock(&xtime_lock);
+	raw_write_seqlock(&xtime_lock);
 	do_timer(ticks);
-	write_sequnlock(&xtime_lock);
+	raw_write_sequnlock(&xtime_lock);
 }
