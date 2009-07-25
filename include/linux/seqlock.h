@@ -152,6 +152,11 @@ static inline void write_seqcount_barrier(seqcount_t *s)
 
 typedef struct {
 	struct seqcount seqcount;
+	raw_spinlock_t lock;
+} raw_seqlock_t;
+
+typedef struct {
+	struct seqcount seqcount;
 	spinlock_t lock;
 } seqlock_t;
 
@@ -159,6 +164,21 @@ typedef struct {
  * These macros triggered gcc-3.x compile-time problems.  We think these are
  * OK now.  Be cautious.
  */
+#define __RAW_SEQLOCK_UNLOCKED(lockname)			\
+	{							\
+		.seqcount = SEQCNT_ZERO,			\
+		.lock =	__RAW_SPIN_LOCK_UNLOCKED(lockname)	\
+	}
+
+#define raw_seqlock_init(x)					\
+	do {							\
+		seqcount_init(&(x)->seqcount);			\
+		raw_spin_lock_init(&(x)->lock);			\
+	} while (0)
+
+#define DEFINE_RAW_SEQLOCK(x) \
+		raw_seqlock_t x = __RAW_SEQLOCK_UNLOCKED(x)
+
 #define __SEQLOCK_UNLOCKED(lockname)			\
 	{						\
 		.seqcount = SEQCNT_ZERO,		\
@@ -182,6 +202,49 @@ typedef struct {
  * Acts like a normal spin_lock/unlock.
  * Don't need preempt_disable() because that is in the spin_lock already.
  */
+static inline void raw_write_seqlock(raw_seqlock_t *sl)
+{
+	raw_spin_lock(&sl->lock);
+	write_seqcount_begin(&sl->seqcount);
+}
+
+static inline void raw_write_sequnlock(raw_seqlock_t *sl)
+{
+	write_seqcount_end(&sl->seqcount);
+	raw_spin_unlock(&sl->lock);
+}
+
+static inline void raw_write_seqlock_irq(raw_seqlock_t *sl)
+{
+	raw_spin_lock_irq(&sl->lock);
+	write_seqcount_begin(&sl->seqcount);
+}
+
+static inline void raw_write_sequnlock_irq(raw_seqlock_t *sl)
+{
+	write_seqcount_end(&sl->seqcount);
+	raw_spin_unlock_irq(&sl->lock);
+}
+
+static inline unsigned long __raw_write_seqlock_irqsave(raw_seqlock_t *sl)
+{
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&sl->lock, flags);
+	write_seqcount_begin(&sl->seqcount);
+	return flags;
+}
+
+#define raw_write_seqlock_irqsave(lock, flags)				\
+	do { flags = __raw_write_seqlock_irqsave(lock); } while (0)
+
+static inline void
+raw_write_sequnlock_irqrestore(raw_seqlock_t *sl, unsigned long flags)
+{
+	write_seqcount_end(&sl->seqcount);
+	raw_spin_unlock_irqrestore(&sl->lock, flags);
+}
+
 static inline void write_seqlock(seqlock_t *sl)
 {
 	spin_lock(&sl->lock);
