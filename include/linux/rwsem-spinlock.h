@@ -20,6 +20,20 @@
  * - if activity is -1 then there is one active writer
  * - if wait_list is not empty, then there are processes waiting for the semaphore
  */
+struct rw_anon_semaphore {
+	__s32			activity;
+	raw_spinlock_t		wait_lock;
+	struct list_head	wait_list;
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+	struct lockdep_map dep_map;
+#endif
+};
+
+/*
+ * Non preempt-rt implementation of rw_semaphore. Same as above, but
+ * restricted vs. ownership. i.e. ownerless locked state and non owner
+ * release not allowed.
+ */
 struct rw_semaphore {
 	__s32			activity;
 	raw_spinlock_t		wait_lock;
@@ -31,15 +45,15 @@ struct rw_semaphore {
 
 #define RWSEM_UNLOCKED_VALUE		0x00000000
 
-extern void __down_read(struct rw_semaphore *sem);
-extern int __down_read_trylock(struct rw_semaphore *sem);
-extern void __down_write(struct rw_semaphore *sem);
-extern void __down_write_nested(struct rw_semaphore *sem, int subclass);
-extern int __down_write_trylock(struct rw_semaphore *sem);
-extern void __up_read(struct rw_semaphore *sem);
-extern void __up_write(struct rw_semaphore *sem);
-extern void __downgrade_write(struct rw_semaphore *sem);
-extern int rwsem_is_locked(struct rw_semaphore *sem);
+extern void __down_read(struct rw_anon_semaphore *sem);
+extern int __down_read_trylock(struct rw_anon_semaphore *sem);
+extern void __down_write(struct rw_anon_semaphore *sem);
+extern void __down_write_nested(struct rw_anon_semaphore *sem, int subclass);
+extern int __down_write_trylock(struct rw_anon_semaphore *sem);
+extern void __up_read(struct rw_anon_semaphore *sem);
+extern void __up_write(struct rw_anon_semaphore *sem);
+extern void __downgrade_write(struct rw_anon_semaphore *sem);
+extern int anon_rwsem_is_locked(struct rw_anon_semaphore *sem);
 
 #endif /* __KERNEL__ */
 #endif /* _LINUX_RWSEM_SPINLOCK_H */

@@ -38,7 +38,7 @@
  * lock for reading
  */
 static inline void
-__down_read (struct rw_semaphore *sem)
+__down_read (struct rw_anon_semaphore *sem)
 {
 	long result = ia64_fetchadd8_acq((unsigned long *)&sem->count, 1);
 
@@ -50,7 +50,7 @@ __down_read (struct rw_semaphore *sem)
  * lock for writing
  */
 static inline void
-__down_write (struct rw_semaphore *sem)
+__down_write (struct rw_anon_semaphore *sem)
 {
 	long old, new;
 
@@ -67,7 +67,7 @@ __down_write (struct rw_semaphore *sem)
  * unlock after reading
  */
 static inline void
-__up_read (struct rw_semaphore *sem)
+__up_read (struct rw_anon_semaphore *sem)
 {
 	long result = ia64_fetchadd8_rel((unsigned long *)&sem->count, -1);
 
@@ -79,7 +79,7 @@ __up_read (struct rw_semaphore *sem)
  * unlock after writing
  */
 static inline void
-__up_write (struct rw_semaphore *sem)
+__up_write (struct rw_anon_semaphore *sem)
 {
 	long old, new;
 
@@ -96,7 +96,7 @@ __up_write (struct rw_semaphore *sem)
  * trylock for reading -- returns 1 if successful, 0 if contention
  */
 static inline int
-__down_read_trylock (struct rw_semaphore *sem)
+__down_read_trylock (struct rw_anon_semaphore *sem)
 {
 	long tmp;
 	while ((tmp = sem->count) >= 0) {
@@ -111,7 +111,7 @@ __down_read_trylock (struct rw_semaphore *sem)
  * trylock for writing -- returns 1 if successful, 0 if contention
  */
 static inline int
-__down_write_trylock (struct rw_semaphore *sem)
+__down_write_trylock (struct rw_anon_semaphore *sem)
 {
 	long tmp = cmpxchg_acq(&sem->count, RWSEM_UNLOCKED_VALUE,
 			      RWSEM_ACTIVE_WRITE_BIAS);
@@ -122,7 +122,7 @@ __down_write_trylock (struct rw_semaphore *sem)
  * downgrade write lock to read lock
  */
 static inline void
-__downgrade_write (struct rw_semaphore *sem)
+__downgrade_write (struct rw_anon_semaphore *sem)
 {
 	long old, new;
 

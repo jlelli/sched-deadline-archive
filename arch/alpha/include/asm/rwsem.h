@@ -21,7 +21,7 @@
 #define RWSEM_ACTIVE_READ_BIAS		RWSEM_ACTIVE_BIAS
 #define RWSEM_ACTIVE_WRITE_BIAS		(RWSEM_WAITING_BIAS + RWSEM_ACTIVE_BIAS)
 
-static inline void __down_read(struct rw_semaphore *sem)
+static inline void __down_read(struct rw_anon_semaphore *sem)
 {
 	long oldcount;
 #ifndef	CONFIG_SMP
@@ -48,7 +48,7 @@ static inline void __down_read(struct rw_semaphore *sem)
 /*
  * trylock for reading -- returns 1 if successful, 0 if contention
  */
-static inline int __down_read_trylock(struct rw_semaphore *sem)
+static inline int __down_read_trylock(struct rw_anon_semaphore *sem)
 {
 	long old, new, res;
 
@@ -63,7 +63,7 @@ static inline int __down_read_trylock(struct rw_semaphore *sem)
 	return res >= 0 ? 1 : 0;
 }
 
-static inline void __down_write(struct rw_semaphore *sem)
+static inline void __down_write(struct rw_anon_semaphore *sem)
 {
 	long oldcount;
 #ifndef	CONFIG_SMP
@@ -90,7 +90,7 @@ static inline void __down_write(struct rw_semaphore *sem)
 /*
  * trylock for writing -- returns 1 if successful, 0 if contention
  */
-static inline int __down_write_trylock(struct rw_semaphore *sem)
+static inline int __down_write_trylock(struct rw_anon_semaphore *sem)
 {
 	long ret = cmpxchg(&sem->count, RWSEM_UNLOCKED_VALUE,
 			   RWSEM_ACTIVE_WRITE_BIAS);
@@ -99,7 +99,7 @@ static inline int __down_write_trylock(struct rw_semaphore *sem)
 	return 0;
 }
 
-static inline void __up_read(struct rw_semaphore *sem)
+static inline void __up_read(struct rw_anon_semaphore *sem)
 {
 	long oldcount;
 #ifndef	CONFIG_SMP
@@ -124,7 +124,7 @@ static inline void __up_read(struct rw_semaphore *sem)
 			rwsem_wake(sem);
 }
 
-static inline void __up_write(struct rw_semaphore *sem)
+static inline void __up_write(struct rw_anon_semaphore *sem)
 {
 	long count;
 #ifndef	CONFIG_SMP
@@ -153,7 +153,7 @@ static inline void __up_write(struct rw_semaphore *sem)
 /*
  * downgrade write lock to read lock
  */
-static inline void __downgrade_write(struct rw_semaphore *sem)
+static inline void __downgrade_write(struct rw_anon_semaphore *sem)
 {
 	long oldcount;
 #ifndef	CONFIG_SMP
@@ -177,7 +177,7 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
 		rwsem_downgrade_wake(sem);
 }
 
-static inline void rwsem_atomic_add(long val, struct rw_semaphore *sem)
+static inline void rwsem_atomic_add(long val, struct rw_anon_semaphore *sem)
 {
 #ifndef	CONFIG_SMP
 	sem->count += val;
@@ -196,7 +196,7 @@ static inline void rwsem_atomic_add(long val, struct rw_semaphore *sem)
 #endif
 }
 
-static inline long rwsem_atomic_update(long val, struct rw_semaphore *sem)
+static inline long rwsem_atomic_update(long val, struct rw_anon_semaphore *sem)
 {
 #ifndef	CONFIG_SMP
 	sem->count += val;
