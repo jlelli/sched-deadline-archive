@@ -255,7 +255,7 @@ static ssize_t dio_complete(struct dio *dio, loff_t offset, ssize_t ret, bool is
 
 	if (dio->flags & DIO_LOCKING)
 		/* lockdep: non-owner release */
-		up_read_non_owner(&dio->inode->i_alloc_sem);
+		anon_up_read_non_owner(&dio->inode->i_alloc_sem);
 
 	return ret;
 }
@@ -1234,7 +1234,7 @@ __blockdev_direct_IO(int rw, struct kiocb *iocb, struct inode *inode,
 		 * Will be released at I/O completion, possibly in a
 		 * different thread.
 		 */
-		down_read_non_owner(&inode->i_alloc_sem);
+		anon_down_read_non_owner(&inode->i_alloc_sem);
 	}
 
 	/*
