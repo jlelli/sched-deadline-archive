@@ -272,7 +272,7 @@ xfs_iget_cache_hit(
 		__xfs_inode_clear_reclaim_tag(mp, pag, ip);
 		inode->i_state = I_NEW;
 
-		ASSERT(!rwsem_is_locked(&ip->i_iolock.mr_lock));
+		ASSERT(!anon_rwsem_is_locked(&ip->i_iolock.mr_lock));
 		mrlock_init(&ip->i_iolock, MRLOCK_BARRIER, "xfsio", ip->i_ino);
 		lockdep_set_class_and_name(&ip->i_iolock.mr_lock,
 				&xfs_iolock_active, "xfs_iolock_active");
@@ -706,13 +706,13 @@ xfs_isilocked(
 	if (lock_flags & (XFS_ILOCK_EXCL|XFS_ILOCK_SHARED)) {
 		if (!(lock_flags & XFS_ILOCK_SHARED))
 			return !!ip->i_lock.mr_writer;
-		return rwsem_is_locked(&ip->i_lock.mr_lock);
+		return anon_rwsem_is_locked(&ip->i_lock.mr_lock);
 	}
 
 	if (lock_flags & (XFS_IOLOCK_EXCL|XFS_IOLOCK_SHARED)) {
 		if (!(lock_flags & XFS_IOLOCK_SHARED))
 			return !!ip->i_iolock.mr_writer;
-		return rwsem_is_locked(&ip->i_iolock.mr_lock);
+		return anon_rwsem_is_locked(&ip->i_iolock.mr_lock);
 	}
 
 	ASSERT(0);
