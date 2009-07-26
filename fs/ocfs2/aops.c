@@ -569,7 +569,7 @@ static void ocfs2_dio_end_io(struct kiocb *iocb,
 	BUG_ON(!ocfs2_iocb_is_rw_locked(iocb));
 
 	if (ocfs2_iocb_is_sem_locked(iocb)) {
-		up_read(&inode->i_alloc_sem);
+		anon_up_read(&inode->i_alloc_sem);
 		ocfs2_iocb_clear_sem_locked(iocb);
 	}
 
