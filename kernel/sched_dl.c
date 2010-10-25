@@ -990,6 +990,14 @@ static void task_fork_dl(struct task_struct *p)
 static void task_dead_dl(struct task_struct *p)
 {
 	struct hrtimer *timer = &p->dl.dl_timer;
+	struct dl_bw *dl_b = &task_rq(p)->rd->dl_bw;
+
+	/*
+	 * Since we are TASK_DEAD we won't slip out of the domain!
+	 */
+	raw_spin_lock_irq(&dl_b->lock);
+	dl_b->total_bw -= p->dl.dl_bw;
+	raw_spin_unlock_irq(&dl_b->lock);
 
 	hrtimer_try_to_cancel(timer);
 }
@@ -1170,7 +1178,7 @@ static struct rq *find_lock_later_rq(struct task_struct *task, struct rq *rq)
 				     !cpumask_test_cpu(later_rq->cpu,
 						       &task->cpus_allowed) ||
 				     task_running(rq, task) ||
-				     !task->se.on_rq)) {
+				     !task->on_rq)) {
 				raw_spin_unlock(&later_rq->lock);
 				later_rq = NULL;
 				break;
@@ -1209,7 +1217,7 @@ static struct task_struct *pick_next_pushable_dl_task(struct rq *rq)
 	BUG_ON(task_current(rq, p));
 	BUG_ON(p->dl.nr_cpus_allowed <= 1);
 
-	BUG_ON(!p->se.on_rq);
+	BUG_ON(!p->on_rq);
 	BUG_ON(!dl_task(p));
 
 	return p;
@@ -1350,7 +1358,7 @@ static int pull_dl_task(struct rq *this_rq)
 		     dl_time_before(p->dl.deadline,
 				    this_rq->dl.earliest_dl.curr))) {
 			WARN_ON(p == src_rq->curr);
-			WARN_ON(!p->se.on_rq);
+			WARN_ON(!p->on_rq);
 
 			/*
 			 * Then we pull iff p has actually an earlier
