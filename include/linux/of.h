@@ -68,7 +68,7 @@ struct device_node {
 /* Pointer for first entry in chain of all nodes. */
 extern struct device_node *allnodes;
 extern struct device_node *of_chosen;
-extern rwlock_t devtree_lock;
+extern raw_spinlock_t devtree_lock;
 
 static inline bool of_have_populated_dt(void)
 {
