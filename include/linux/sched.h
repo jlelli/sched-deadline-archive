@@ -1595,6 +1595,7 @@ struct task_struct {
 #endif
 #ifdef CONFIG_PREEMPT_RT_BASE
 	struct rcu_head put_rcu;
+	int softirq_nestcnt;
 #endif
 };
 
