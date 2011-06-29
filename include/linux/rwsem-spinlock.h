@@ -29,6 +29,7 @@ struct rw_anon_semaphore {
 #endif
 };
 
+#ifndef CONFIG_PREEMPT_RT_FULL
 /*
  * Non preempt-rt implementation of rw_semaphore. Same as above, but
  * restricted vs. ownership. i.e. ownerless locked state and non owner
@@ -42,6 +43,7 @@ struct rw_semaphore {
 	struct lockdep_map dep_map;
 #endif
 };
+#endif /* PREEMPT_RT_FULL */
 
 #define RWSEM_UNLOCKED_VALUE		0x00000000
 
