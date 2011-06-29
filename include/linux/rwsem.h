@@ -151,6 +151,9 @@ extern void anon_up_read_non_owner(struct rw_anon_semaphore *sem);
 # define anon_up_read_non_owner(sem)		anon_up_read(sem)
 #endif
 
+#ifdef CONFIG_PREEMPT_RT_FULL
+#include <linux/rwsem_rt.h>
+#else /* PREEMPT_RT_FULL */
 /*
  * Non preempt-rt implementations
  */
@@ -225,5 +228,6 @@ static inline int rwsem_is_locked(struct rw_semaphore *sem)
 {
 	return anon_rwsem_is_locked((struct rw_anon_semaphore *)sem);
 }
+#endif /* !PREEMPT_RT_FULL */
 
 #endif /* _LINUX_RWSEM_H */
