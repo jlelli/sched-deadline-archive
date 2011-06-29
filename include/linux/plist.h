@@ -77,13 +77,15 @@
 
 #include <linux/kernel.h>
 #include <linux/list.h>
-#include <linux/spinlock_types.h>
+
+struct raw_spinlock;
+struct spinlock;
 
 struct plist_head {
 	struct list_head node_list;
 #ifdef CONFIG_DEBUG_PI_LIST
-	raw_spinlock_t *rawlock;
-	spinlock_t *spinlock;
+	struct raw_spinlock *rawlock;
+	struct spinlock *spinlock;
 #endif
 };
 
@@ -144,7 +146,7 @@ struct plist_node {
  * @lock:	spinlock protecting the list (debugging)
  */
 static inline void
-plist_head_init(struct plist_head *head, spinlock_t *lock)
+plist_head_init(struct plist_head *head, struct spinlock *lock)
 {
 	INIT_LIST_HEAD(&head->node_list);
 #ifdef CONFIG_DEBUG_PI_LIST
@@ -159,7 +161,7 @@ plist_head_init(struct plist_head *head, spinlock_t *lock)
  * @lock:	raw_spinlock protecting the list (debugging)
  */
 static inline void
-plist_head_init_raw(struct plist_head *head, raw_spinlock_t *lock)
+plist_head_init_raw(struct plist_head *head, struct raw_spinlock *lock)
 {
 	INIT_LIST_HEAD(&head->node_list);
 #ifdef CONFIG_DEBUG_PI_LIST
