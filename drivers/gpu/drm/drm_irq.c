@@ -109,10 +109,7 @@ static void vblank_disable_and_save(struct drm_device *dev, int crtc)
 	/* Prevent vblank irq processing while disabling vblank irqs,
 	 * so no updates of timestamps or count can happen after we've
 	 * disabled. Needed to prevent races in case of delayed irq's.
-	 * Disable preemption, so vblank_time_lock is held as short as
-	 * possible, even under a kernel with PREEMPT_RT patches.
 	 */
-	preempt_disable();
 	spin_lock_irqsave(&dev->vblank_time_lock, irqflags);
 
 	dev->driver->disable_vblank(dev, crtc);
@@ -163,7 +160,6 @@ static void vblank_disable_and_save(struct drm_device *dev, int crtc)
 	clear_vblank_timestamps(dev, crtc);
 
 	spin_unlock_irqrestore(&dev->vblank_time_lock, irqflags);
-	preempt_enable();
 }
 
 static void vblank_disable_fn(unsigned long arg)
