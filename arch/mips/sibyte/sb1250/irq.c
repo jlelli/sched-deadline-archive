@@ -178,7 +178,7 @@ static void ack_sb1250_irq(struct irq_data *d)
 
 static struct irq_chip sb1250_irq_type = {
 	.name = "SB1250-IMR",
-	.irq_mask_ack = ack_sb1250_irq,
+	.irq_mask = ack_sb1250_irq,
 	.irq_unmask = enable_sb1250_irq,
 #ifdef CONFIG_SMP
 	.irq_set_affinity = sb1250_set_affinity
