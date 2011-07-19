@@ -933,7 +933,7 @@ static void iommu_set_root_entry(struct intel_iommu *iommu)
 
 	addr = iommu->root_entry;
 
-	spin_lock_irqsave(&iommu->register_lock, flag);
+	raw_spin_lock_irqsave(&iommu->register_lock, flag);
 	dmar_writeq(iommu->reg + DMAR_RTADDR_REG, virt_to_phys(addr));
 
 	writel(iommu->gcmd | DMA_GCMD_SRTP, iommu->reg + DMAR_GCMD_REG);
@@ -942,7 +942,7 @@ static void iommu_set_root_entry(struct intel_iommu *iommu)
 	IOMMU_WAIT_OP(iommu, DMAR_GSTS_REG,
 		      readl, (sts & DMA_GSTS_RTPS), sts);
 
-	spin_unlock_irqrestore(&iommu->register_lock, flag);
+	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
 }
 
 static void iommu_flush_write_buffer(struct intel_iommu *iommu)
@@ -953,14 +953,14 @@ static void iommu_flush_write_buffer(struct intel_iommu *iommu)
 	if (!rwbf_quirk && !cap_rwbf(iommu->cap))
 		return;
 
-	spin_lock_irqsave(&iommu->register_lock, flag);
+	raw_spin_lock_irqsave(&iommu->register_lock, flag);
 	writel(iommu->gcmd | DMA_GCMD_WBF, iommu->reg + DMAR_GCMD_REG);
 
 	/* Make sure hardware complete it */
 	IOMMU_WAIT_OP(iommu, DMAR_GSTS_REG,
 		      readl, (!(val & DMA_GSTS_WBFS)), val);
 
-	spin_unlock_irqrestore(&iommu->register_lock, flag);
+	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
 }
 
 /* return value determine if we need a write buffer flush */
@@ -987,14 +987,14 @@ static void __iommu_flush_context(struct intel_iommu *iommu,
 	}
 	val |= DMA_CCMD_ICC;
 
-	spin_lock_irqsave(&iommu->register_lock, flag);
+	raw_spin_lock_irqsave(&iommu->register_lock, flag);
 	dmar_writeq(iommu->reg + DMAR_CCMD_REG, val);
 
 	/* Make sure hardware complete it */
 	IOMMU_WAIT_OP(iommu, DMAR_CCMD_REG,
 		dmar_readq, (!(val & DMA_CCMD_ICC)), val);
 
-	spin_unlock_irqrestore(&iommu->register_lock, flag);
+	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
 }
 
 /* return value determine if we need a write buffer flush */
@@ -1033,7 +1033,7 @@ static void __iommu_flush_iotlb(struct intel_iommu *iommu, u16 did,
 	if (cap_write_drain(iommu->cap))
 		val |= DMA_TLB_WRITE_DRAIN;
 
-	spin_lock_irqsave(&iommu->register_lock, flag);
+	raw_spin_lock_irqsave(&iommu->register_lock, flag);
 	/* Note: Only uses first TLB reg currently */
 	if (val_iva)
 		dmar_writeq(iommu->reg + tlb_offset, val_iva);
@@ -1043,7 +1043,7 @@ static void __iommu_flush_iotlb(struct intel_iommu *iommu, u16 did,
 	IOMMU_WAIT_OP(iommu, tlb_offset + 8,
 		dmar_readq, (!(val & DMA_TLB_IVT)), val);
 
-	spin_unlock_irqrestore(&iommu->register_lock, flag);
+	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
 
 	/* check IOTLB invalidation granularity */
 	if (DMA_TLB_IAIG(val) == 0)
@@ -1159,7 +1159,7 @@ static void iommu_disable_protect_mem_regions(struct intel_iommu *iommu)
 	u32 pmen;
 	unsigned long flags;
 
-	spin_lock_irqsave(&iommu->register_lock, flags);
+	raw_spin_lock_irqsave(&iommu->register_lock, flags);
 	pmen = readl(iommu->reg + DMAR_PMEN_REG);
 	pmen &= ~DMA_PMEN_EPM;
 	writel(pmen, iommu->reg + DMAR_PMEN_REG);
@@ -1168,7 +1168,7 @@ static void iommu_disable_protect_mem_regions(struct intel_iommu *iommu)
 	IOMMU_WAIT_OP(iommu, DMAR_PMEN_REG,
 		readl, !(pmen & DMA_PMEN_PRS), pmen);
 
-	spin_unlock_irqrestore(&iommu->register_lock, flags);
+	raw_spin_unlock_irqrestore(&iommu->register_lock, flags);
 }
 
 static int iommu_enable_translation(struct intel_iommu *iommu)
@@ -1176,7 +1176,7 @@ static int iommu_enable_translation(struct intel_iommu *iommu)
 	u32 sts;
 	unsigned long flags;
 
-	spin_lock_irqsave(&iommu->register_lock, flags);
+	raw_spin_lock_irqsave(&iommu->register_lock, flags);
 	iommu->gcmd |= DMA_GCMD_TE;
 	writel(iommu->gcmd, iommu->reg + DMAR_GCMD_REG);
 
@@ -1184,7 +1184,7 @@ static int iommu_enable_translation(struct intel_iommu *iommu)
 	IOMMU_WAIT_OP(iommu, DMAR_GSTS_REG,
 		      readl, (sts & DMA_GSTS_TES), sts);
 
-	spin_unlock_irqrestore(&iommu->register_lock, flags);
+	raw_spin_unlock_irqrestore(&iommu->register_lock, flags);
 	return 0;
 }
 
@@ -1193,7 +1193,7 @@ static int iommu_disable_translation(struct intel_iommu *iommu)
 	u32 sts;
 	unsigned long flag;
 
-	spin_lock_irqsave(&iommu->register_lock, flag);
+	raw_spin_lock_irqsave(&iommu->register_lock, flag);
 	iommu->gcmd &= ~DMA_GCMD_TE;
 	writel(iommu->gcmd, iommu->reg + DMAR_GCMD_REG);
 
@@ -1201,7 +1201,7 @@ static int iommu_disable_translation(struct intel_iommu *iommu)
 	IOMMU_WAIT_OP(iommu, DMAR_GSTS_REG,
 		      readl, (!(sts & DMA_GSTS_TES)), sts);
 
-	spin_unlock_irqrestore(&iommu->register_lock, flag);
+	raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
 	return 0;
 }
 
@@ -3321,7 +3321,7 @@ static int iommu_suspend(void)
 	for_each_active_iommu(iommu, drhd) {
 		iommu_disable_translation(iommu);
 
-		spin_lock_irqsave(&iommu->register_lock, flag);
+		raw_spin_lock_irqsave(&iommu->register_lock, flag);
 
 		iommu->iommu_state[SR_DMAR_FECTL_REG] =
 			readl(iommu->reg + DMAR_FECTL_REG);
@@ -3332,7 +3332,7 @@ static int iommu_suspend(void)
 		iommu->iommu_state[SR_DMAR_FEUADDR_REG] =
 			readl(iommu->reg + DMAR_FEUADDR_REG);
 
-		spin_unlock_irqrestore(&iommu->register_lock, flag);
+		raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
 	}
 	return 0;
 
@@ -3359,7 +3359,7 @@ static void iommu_resume(void)
 
 	for_each_active_iommu(iommu, drhd) {
 
-		spin_lock_irqsave(&iommu->register_lock, flag);
+		raw_spin_lock_irqsave(&iommu->register_lock, flag);
 
 		writel(iommu->iommu_state[SR_DMAR_FECTL_REG],
 			iommu->reg + DMAR_FECTL_REG);
@@ -3370,7 +3370,7 @@ static void iommu_resume(void)
 		writel(iommu->iommu_state[SR_DMAR_FEUADDR_REG],
 			iommu->reg + DMAR_FEUADDR_REG);
 
-		spin_unlock_irqrestore(&iommu->register_lock, flag);
+		raw_spin_unlock_irqrestore(&iommu->register_lock, flag);
 	}
 
 	for_each_active_iommu(iommu, drhd)
