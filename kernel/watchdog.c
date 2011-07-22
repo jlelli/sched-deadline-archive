@@ -208,6 +208,8 @@ static struct perf_event_attr wd_hw_attr = {
 	.disabled	= 1,
 };
 
+static DEFINE_RAW_SPINLOCK(watchdog_output_lock);
+
 /* Callback function for perf event subsystem */
 static void watchdog_overflow_callback(struct perf_event *event, int nmi,
 		 struct perf_sample_data *data,
@@ -234,10 +236,19 @@ static void watchdog_overflow_callback(struct perf_event *event, int nmi,
 		if (__this_cpu_read(hard_watchdog_warn) == true)
 			return;
 
-		if (hardlockup_panic)
+		/*
+		 * If early-printk is enabled then make sure we do not
+		 * lock up in printk() and kill console logging:
+		 */
+		printk_kill();
+
+		if (hardlockup_panic) {
 			panic("Watchdog detected hard LOCKUP on cpu %d", this_cpu);
-		else
+		} else {
+			raw_spin_lock(&watchdog_output_lock);
 			WARN(1, "Watchdog detected hard LOCKUP on cpu %d", this_cpu);
+			raw_spin_unlock(&watchdog_output_lock);
+		}
 
 		__this_cpu_write(hard_watchdog_warn, true);
 		return;
