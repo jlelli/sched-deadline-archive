@@ -1267,7 +1267,7 @@ static void intel_pmu_cpu_starting(int cpu)
 		struct intel_percore *pc = per_cpu(cpu_hw_events, i).per_core;
 
 		if (pc && pc->core_id == core_id) {
-			kfree(cpuc->per_core);
+			cpuc->kfree_on_online = cpuc->per_core;
 			cpuc->per_core = pc;
 			break;
 		}
