@@ -21,7 +21,6 @@
 #include <asm/setup.h>
 #include <asm/prom.h>
 
-static u32 early_console_initialized;
 static u32 base_addr;
 
 #ifdef CONFIG_SERIAL_UARTLITE_CONSOLE
@@ -109,31 +108,14 @@ static struct console early_serial_uart16550_console = {
 };
 #endif /* CONFIG_SERIAL_8250_CONSOLE */
 
-static struct console *early_console;
-
-void early_printk(const char *fmt, ...)
-{
-	char buf[512];
-	int n;
-	va_list ap;
-
-	if (early_console_initialized) {
-		va_start(ap, fmt);
-		n = vscnprintf(buf, 512, fmt, ap);
-		early_console->write(early_console, buf, n);
-		va_end(ap);
-	}
-}
-
 int __init setup_early_printk(char *opt)
 {
-	if (early_console_initialized)
+	if (early_console)
 		return 1;
 
 #ifdef CONFIG_SERIAL_UARTLITE_CONSOLE
 	base_addr = early_uartlite_console();
 	if (base_addr) {
-		early_console_initialized = 1;
 #ifdef CONFIG_MMU
 		early_console_reg_tlb_alloc(base_addr);
 #endif
@@ -151,7 +133,6 @@ int __init setup_early_printk(char *opt)
 	base_addr = early_uart16550_console();
 	base_addr &= ~3; /* clear register offset */
 	if (base_addr) {
-		early_console_initialized = 1;
 #ifdef CONFIG_MMU
 		early_console_reg_tlb_alloc(base_addr);
 #endif
@@ -171,9 +152,9 @@ int __init setup_early_printk(char *opt)
 
 void __init disable_early_printk(void)
 {
-	if (!early_console_initialized || !early_console)
+	if (!early_console)
 		return;
 	printk(KERN_WARNING "disabling early console\n");
 	unregister_console(early_console);
-	early_console_initialized = 0;
+	early_console = NULL;
 }
