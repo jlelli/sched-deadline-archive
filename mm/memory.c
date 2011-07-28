@@ -3431,6 +3431,7 @@ unlock:
 #ifdef CONFIG_PREEMPT_RT_FULL
 void pagefault_disable(void)
 {
+	migrate_disable();
 	current->pagefault_disabled++;
 	/*
 	 * make sure to have issued the store before a pagefault
@@ -3448,6 +3449,7 @@ void pagefault_enable(void)
 	 */
 	barrier();
 	current->pagefault_disabled--;
+	migrate_enable();
 }
 EXPORT_SYMBOL_GPL(pagefault_enable);
 #endif
