@@ -1665,6 +1665,9 @@ void __init kmem_cache_init_late(void)
 {
 	struct kmem_cache *cachep;
 
+	/* Annotate slab for lockdep -- annotate the malloc caches */
+	init_lock_keys();
+
 	/* 6) resize the head arrays to their final sizes */
 	mutex_lock(&cache_chain_mutex);
 	list_for_each_entry(cachep, &cache_chain, next)
@@ -1674,9 +1677,6 @@ void __init kmem_cache_init_late(void)
 
 	/* Done! */
 	g_cpucache_up = FULL;
-
-	/* Annotate slab for lockdep -- annotate the malloc caches */
-	init_lock_keys();
 
 	/*
 	 * Register a cpu startup notifier callback that initializes
