@@ -351,6 +351,7 @@ static DEFINE_RAW_SPINLOCK(tracing_start_lock);
  */
 void trace_wake_up(void)
 {
+#ifndef CONFIG_PREEMPT_RT_FULL
 	int cpu;
 
 	if (trace_flags & TRACE_ITER_BLOCK)
@@ -363,6 +364,7 @@ void trace_wake_up(void)
 	if (!runqueue_is_locked(cpu))
 		wake_up(&trace_wait);
 	put_cpu();
+#endif
 }
 
 static int __init set_buf_size(char *str)
@@ -715,6 +717,12 @@ update_max_tr_single(struct trace_array *tr, struct task_struct *tsk, int cpu)
 	arch_spin_unlock(&ftrace_max_lock);
 }
 #endif /* CONFIG_TRACER_MAX_TRACE */
+
+#ifndef CONFIG_PREEMPT_RT_FULL
+static void default_wait_pipe(struct trace_iterator *iter);
+#else
+#define default_wait_pipe	poll_wait_pipe
+#endif
 
 /**
  * register_tracer - register a tracer with the ftrace system.
@@ -3070,6 +3078,7 @@ static int tracing_release_pipe(struct inode *inode, struct file *file)
 	return 0;
 }
 
+#ifndef CONFIG_PREEMPT_RT_FULL
 static unsigned int
 tracing_poll_pipe(struct file *filp, poll_table *poll_table)
 {
@@ -3091,8 +3100,7 @@ tracing_poll_pipe(struct file *filp, poll_table *poll_table)
 	}
 }
 
-
-void default_wait_pipe(struct trace_iterator *iter)
+static void default_wait_pipe(struct trace_iterator *iter)
 {
 	DEFINE_WAIT(wait);
 
@@ -3103,6 +3111,20 @@ void default_wait_pipe(struct trace_iterator *iter)
 
 	finish_wait(&trace_wait, &wait);
 }
+#else
+static unsigned int
+tracing_poll_pipe(struct file *filp, poll_table *poll_table)
+{
+	struct trace_iterator *iter = filp->private_data;
+
+	if ((trace_flags & TRACE_ITER_BLOCK) || !trace_empty(iter))
+		return POLLIN | POLLRDNORM;
+	poll_wait_pipe(iter);
+	if (!trace_empty(iter))
+		return POLLIN | POLLRDNORM;
+	return 0;
+}
+#endif
 
 /*
  * This is a make-shift waitqueue.
