@@ -5040,7 +5040,13 @@ EXPORT_SYMBOL(task_nice);
  */
 int idle_cpu(int cpu)
 {
-	return cpu_curr(cpu) == cpu_rq(cpu)->idle;
+	struct rq *rq = cpu_rq(cpu);
+
+#ifdef CONFIG_SMP
+	return rq->curr == rq->idle && !rq->nr_running && !rq->wake_list;
+#else
+	return rq->curr == rq->idle && !rq->nr_running;
+#endif
 }
 
 /**
