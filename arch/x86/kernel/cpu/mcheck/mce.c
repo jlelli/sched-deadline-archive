@@ -470,8 +470,8 @@ static inline void mce_get_rip(struct mce *m, struct pt_regs *regs)
 asmlinkage void smp_mce_self_interrupt(struct pt_regs *regs)
 {
 	ack_APIC_irq();
-	exit_idle();
 	irq_enter();
+	exit_idle();
 	mce_notify_irq();
 	mce_schedule_work();
 	irq_exit();
