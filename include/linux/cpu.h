@@ -60,14 +60,16 @@ enum {
 	 */
 	CPU_PRI_SCHED_ACTIVE	= INT_MAX,
 	CPU_PRI_CPUSET_ACTIVE	= INT_MAX - 1,
-	CPU_PRI_SCHED_INACTIVE	= INT_MIN + 1,
-	CPU_PRI_CPUSET_INACTIVE	= INT_MIN,
 
 	/* migration should happen before other stuff but after perf */
-	CPU_PRI_PERF		= 20,
-	CPU_PRI_MIGRATION	= 10,
-	/* prepare workqueues for other notifiers */
-	CPU_PRI_WORKQUEUE	= 5,
+	CPU_PRI_PERF			= 20,
+	CPU_PRI_MIGRATION		= 10,
+	CPU_PRI_WORKQUEUE_ACTIVE	= 5,  /* prepare workqueues for others */
+	CPU_PRI_NORMAL			= 0,
+	CPU_PRI_WORKQUEUE_INACTIVE	= -5, /* flush workqueues after others */
+
+	CPU_PRI_SCHED_INACTIVE	= INT_MIN + 1,
+	CPU_PRI_CPUSET_INACTIVE	= INT_MIN,
 };
 
 #ifdef CONFIG_SMP
