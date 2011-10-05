@@ -1892,7 +1892,7 @@ EXPORT_SYMBOL_GPL(synchronize_sched_expedited);
 
 #endif /* #else #ifndef CONFIG_SMP */
 
-#if !defined(CONFIG_RCU_FAST_NO_HZ)
+#if 1 /* !defined(CONFIG_RCU_FAST_NO_HZ) */
 
 /*
  * Check to see if any future RCU-related work will need to be done
