@@ -166,7 +166,12 @@ void rcu_sched_qs(int cpu)
 	rdp->passed_quiesc = 1;
 }
 
-#ifndef CONFIG_PREEMPT_RT_FULL
+#ifdef CONFIG_PREEMPT_RT_FULL
+void rcu_bh_qs(int cpu)
+{
+	rcu_preempt_qs(cpu);
+}
+#else
 void rcu_bh_qs(int cpu)
 {
 	struct rcu_data *rdp = &per_cpu(rcu_bh_data, cpu);

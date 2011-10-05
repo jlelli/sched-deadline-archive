@@ -138,7 +138,7 @@ static void wakeup_softirqd(void)
 		wake_up_process(tsk);
 }
 
-static void handle_pending_softirqs(u32 pending, int cpu)
+static void handle_pending_softirqs(u32 pending, int cpu, int need_rcu_bh_qs)
 {
 	struct softirq_action *h = softirq_vec;
 	unsigned int prev_count = preempt_count();
@@ -161,7 +161,8 @@ static void handle_pending_softirqs(u32 pending, int cpu)
 			       prev_count, (unsigned int) preempt_count());
 			preempt_count() = prev_count;
 		}
-		rcu_bh_qs(cpu);
+		if (need_rcu_bh_qs)
+			rcu_bh_qs(cpu);
 	}
 	local_irq_disable();
 }
@@ -313,7 +314,7 @@ restart:
 	/* Reset the pending bitmask before enabling irqs */
 	set_softirq_pending(0);
 
-	handle_pending_softirqs(pending, cpu);
+	handle_pending_softirqs(pending, cpu, 1);
 
 	pending = local_softirq_pending();
 	if (pending && --max_restart)
@@ -383,7 +384,12 @@ static inline void ksoftirqd_clr_sched_params(void) { }
 static DEFINE_LOCAL_IRQ_LOCK(local_softirq_lock);
 static DEFINE_PER_CPU(struct task_struct *, local_softirq_runner);
 
-static void __do_softirq(void);
+static void __do_softirq_common(int need_rcu_bh_qs);
+
+void __do_softirq(void)
+{
+	__do_softirq_common(0);
+}
 
 void __init softirq_early_init(void)
 {
@@ -446,7 +452,7 @@ int in_serving_softirq(void)
  * Called with bh and local interrupts disabled. For full RT cpu must
  * be pinned.
  */
-static void __do_softirq(void)
+static void __do_softirq_common(int need_rcu_bh_qs)
 {
 	u32 pending = local_softirq_pending();
 	int cpu = smp_processor_id();
@@ -460,7 +466,7 @@ static void __do_softirq(void)
 
 	lockdep_softirq_enter();
 
-	handle_pending_softirqs(pending, cpu);
+	handle_pending_softirqs(pending, cpu, need_rcu_bh_qs);
 
 	pending = local_softirq_pending();
 	if (pending)
@@ -499,7 +505,7 @@ static int __thread_do_softirq(int cpu)
 	 * schedule!
 	 */
 	if (local_softirq_pending())
-		__do_softirq();
+		__do_softirq_common(cpu >= 0);
 	local_unlock(local_softirq_lock);
 	unpin_current_cpu();
 	preempt_disable();
