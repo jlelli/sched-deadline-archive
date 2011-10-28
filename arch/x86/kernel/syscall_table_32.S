@@ -348,3 +348,6 @@ ENTRY(sys_call_table)
 	.long sys_setns
 	.long sys_process_vm_readv
 	.long sys_process_vm_writev
+	.long sys_sched_setscheduler2
+	.long sys_sched_setparam2	/* 350 */
+	.long sys_sched_getparam2
