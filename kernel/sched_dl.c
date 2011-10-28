@@ -557,13 +557,9 @@ static void task_tick_dl(struct rq *rq, struct task_struct *p, int queued)
 static void task_fork_dl(struct task_struct *p)
 {
 	/*
-	 * The child of a -deadline task will be SCHED_DEADLINE, but
-	 * as a throttled task. This means the parent (or someone else)
-	 * must call sched_setscheduler_ex() on it, or it won't even
-	 * start.
+	 * SCHED_DEADLINE tasks cannot fork and this is achieved through 
+	 * sched_fork()
 	 */
-	p->dl.dl_throttled = 1;
-	p->dl.dl_new = 0;
 }
 
 static void task_dead_dl(struct task_struct *p)
