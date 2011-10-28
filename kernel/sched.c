@@ -1964,9 +1964,6 @@ static inline void __set_task_cpu(struct task_struct *p, unsigned int cpu)
 #endif
 }
 
-static const struct sched_class rt_sched_class;
-static const struct sched_class dl_sched_class;
-
 #define sched_class_highest (&stop_sched_class)
 #define for_each_class(class) \
    for (class = sched_class_highest; class; class = class->next)
@@ -2257,6 +2254,7 @@ static int irqtime_account_si_update(void)
 #include "sched_idletask.c"
 #include "sched_fair.c"
 #include "sched_rt.c"
+#include "sched_dl.c"
 #include "sched_autogroup.c"
 #include "sched_stoptask.c"
 #ifdef CONFIG_SCHED_DEBUG
@@ -3077,7 +3075,11 @@ void sched_fork(struct task_struct *p)
 		p->sched_reset_on_fork = 0;
 	}
 
-	if (!rt_prio(p->prio))
+	if (dl_prio(p->prio))
+		p->sched_class = &dl_sched_class;
+	else if (rt_prio(p->prio))
+		p->sched_class = &rt_sched_class;
+	else
 		p->sched_class = &fair_sched_class;
 
 	if (p->sched_class->task_fork)
@@ -5234,7 +5236,7 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 	struct rq *rq;
 	const struct sched_class *prev_class;
 
-	BUG_ON(prio < 0 || prio > MAX_PRIO);
+	BUG_ON(prio > MAX_PRIO);
 
 	rq = __task_rq_lock(p);
 
@@ -5470,6 +5472,38 @@ __setscheduler(struct rq *rq, struct task_struct *p, int policy, int prio)
 }
 
 /*
+ * This function initializes the sched_dl_entity of a newly becoming
+ * SCHED_DEADLINE task.
+ *
+ * Only the static values are considered here, the actual runtime and the
+ * absolute deadline will be properly calculated when the task is enqueued
+ * for the first time with its new policy.
+ */
+static void
+__setparam_dl(struct task_struct *p, const struct sched_param2 *param2)
+{
+	struct sched_dl_entity *dl_se = &p->dl;
+
+	init_dl_task_timer(dl_se);
+	dl_se->dl_runtime = param2->sched_runtime;
+	dl_se->dl_deadline = param2->sched_deadline;
+	dl_se->flags = param2->sched_flags;
+	dl_se->dl_throttled = 0;
+	dl_se->dl_new = 1;
+}
+
+static void
+__getparam_dl(struct task_struct *p, struct sched_param2 *param2)
+{
+	struct sched_dl_entity *dl_se = &p->dl;
+
+	param2->sched_priority = p->rt_priority;
+	param2->sched_runtime = dl_se->dl_runtime;
+	param2->sched_deadline = dl_se->dl_deadline;
+	param2->sched_flags = dl_se->flags;
+}
+
+/*
  * This function validates the new parameters of a -deadline task.
  * We ask for the deadline not being zero, and greater or equal
  * than the runtime.
@@ -5643,7 +5677,11 @@ recheck:
 
 	oldprio = p->prio;
 	prev_class = p->sched_class;
-	__setscheduler(rq, p, policy, param->sched_priority);
+	if (dl_policy(policy)) {
+		__setparam_dl(p, param);
+		__setscheduler(rq, p, policy, param->sched_priority);
+	} else
+		__setscheduler(rq, p, policy, param->sched_priority);
 
 	if (running)
 		p->sched_class->set_curr_task(rq);
@@ -5739,8 +5777,11 @@ do_sched_setscheduler2(pid_t pid, int policy,
 	rcu_read_lock();
 	retval = -ESRCH;
 	p = find_process_by_pid(pid);
-	if (p != NULL)
+	if (p != NULL) {
+		if (dl_policy(policy))
+			lparam2.sched_priority = 0;
 		retval = sched_setscheduler2(p, policy, &lparam2);
+	}
 	rcu_read_unlock();
 
 	return retval;
@@ -5887,7 +5928,10 @@ SYSCALL_DEFINE2(sched_getparam2, pid_t, pid,
 	if (retval)
 		goto out_unlock;
 
-	lp.sched_priority = p->rt_priority;
+	if (task_has_dl_policy(p))
+		__getparam_dl(p, &lp);
+	else
+		lp.sched_priority = p->rt_priority;
 	rcu_read_unlock();
 
 	retval = copy_to_user(param2, &lp, sizeof(struct sched_param2)) ? -EFAULT : 0;
@@ -6285,6 +6329,7 @@ SYSCALL_DEFINE1(sched_get_priority_max, int, policy)
 	case SCHED_RR:
 		ret = MAX_USER_RT_PRIO-1;
 		break;
+	case SCHED_DEADLINE:
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
 	case SCHED_IDLE:
@@ -6310,6 +6355,7 @@ SYSCALL_DEFINE1(sched_get_priority_min, int, policy)
 	case SCHED_RR:
 		ret = 1;
 		break;
+	case SCHED_DEADLINE:
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
 	case SCHED_IDLE:

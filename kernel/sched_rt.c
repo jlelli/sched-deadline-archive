@@ -2,6 +2,7 @@
  * Real-Time Scheduling Class (mapped to the SCHED_FIFO and SCHED_RR
  * policies)
  */
+static const struct sched_class rt_sched_class;
 
 #ifdef CONFIG_RT_GROUP_SCHED
 
