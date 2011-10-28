@@ -128,27 +128,20 @@ struct sched_param {
  *  @sched_period       representative of the task's period
  *  @sched_flags        for customizing the scheduler behaviour
  *
- * There are other fields, which may be useful for implementing (in
- * user-space) advanced scheduling behaviours, e.g., feedback scheduling:
- *
- *  @curr_runtime       task's currently available runtime
- *  @used_runtime       task's totally used runtime
- *  @curr_deadline      task's current absolute deadline
- *
  * Given this task model, there are a multiplicity of scheduling algorithms
  * and policies, that can be used to ensure all the tasks will make their
  * timing constraints.
+ *
+ * @__unused		padding to allow future expansion without ABI issues
  */
 struct sched_param2 {
 	int sched_priority;
 	unsigned int sched_flags;
-	struct timespec sched_runtime;
-	struct timespec sched_deadline;
-	struct timespec sched_period;
+	u64 sched_runtime;
+	u64 sched_deadline;
+	u64 sched_period;
 
-	struct timespec curr_runtime;
-	struct timespec used_runtime;
-	struct timespec curr_deadline;
+	u64 __unused[12];
 };
 
 struct exec_domain;
@@ -2189,7 +2182,6 @@ extern int sched_setscheduler(struct task_struct *, int,
 extern int sched_setscheduler_nocheck(struct task_struct *, int,
 				      const struct sched_param *);
 extern int sched_setscheduler2(struct task_struct *, int,
-				 const struct sched_param *,
 				 const struct sched_param2 *);
 extern struct task_struct *idle_task(int cpu);
 extern struct task_struct *curr_task(int cpu);
