@@ -569,6 +569,8 @@ struct dl_rq {
 
 	unsigned long dl_nr_running;
 
+	u64 exec_clock;
+
 #ifdef CONFIG_SMP
 	/*
 	 * Deadline values of the currently executing and the
