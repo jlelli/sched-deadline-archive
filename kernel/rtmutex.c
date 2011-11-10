@@ -215,6 +215,14 @@ int rt_mutex_getprio(struct task_struct *task)
 		   task->normal_prio);
 }
 
+struct task_struct *rt_mutex_get_top_task(struct task_struct *task)
+{
+	if (likely(!task_has_pi_waiters(task)))
+		return NULL;
+
+	return task_top_pi_waiter(task)->task;
+}
+
 /*
  * Adjust the priority of a task, after its pi_waiters got modified.
  *
@@ -224,7 +232,7 @@ static void __rt_mutex_adjust_prio(struct task_struct *task)
 {
 	int prio = rt_mutex_getprio(task);
 
-	if (task->prio != prio)
+	if (task->prio != prio || dl_prio(prio))
 		rt_mutex_setprio(task, prio);
 }
 
@@ -710,7 +718,8 @@ void rt_mutex_adjust_pi(struct task_struct *task)
 
 	waiter = task->pi_blocked_on;
 	if (!rt_mutex_real_waiter(waiter) ||
-	    waiter->task->prio == task->prio) {
+	    (waiter->task->prio == task->prio &&
+	    !dl_prio(task->prio))) {
 		raw_spin_unlock_irqrestore(&task->pi_lock, flags);
 		return;
 	}

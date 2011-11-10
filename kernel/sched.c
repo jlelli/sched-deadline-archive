@@ -5265,6 +5265,7 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 	}
 
 	trace_sched_pi_setprio(p, prio);
+	p->pi_top_task = rt_mutex_get_top_task(p);
 	oldprio = p->prio;
 	prev_class = p->sched_class;
 	on_rq = p->on_rq;
@@ -5274,8 +5275,11 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 	if (running)
 		p->sched_class->put_prev_task(rq, p);
 
-	if (dl_prio(prio))
+	if (dl_prio(prio)) {
+		printk("warning! task %d becomes -dl!\n",
+				p->pid);
 		p->sched_class = &dl_sched_class;
+	}
 	else if (rt_prio(prio))
 		p->sched_class = &rt_sched_class;
 	else
