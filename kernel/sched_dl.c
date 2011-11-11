@@ -980,11 +980,10 @@ static void task_fork_dl(struct task_struct *p)
 
 static void task_dead_dl(struct task_struct *p)
 {
-	/*
-	 * We are not holding any lock here, so it is safe to
-	 * wait for the bandwidth timer to be removed.
-	 */
-	hrtimer_cancel(&p->dl.dl_timer);
+	struct hrtimer *timer = &p->dl.dl_timer;
+
+	if (hrtimer_active(timer))
+		hrtimer_try_to_cancel(timer);
 }
 
 static void set_curr_task_dl(struct rq *rq)
