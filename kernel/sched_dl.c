@@ -260,6 +260,17 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 {
 	struct dl_rq *dl_rq = dl_rq_of_se(dl_se);
 	struct rq *rq = rq_of_dl_rq(dl_rq);
+	
+	BUG_ON(pi_se->dl_runtime <= 0);
+
+	/*
+	 * This could be the case for a !-dl task that is boosted.
+	 * Just go with full inherited parameters.
+	 */
+	if (dl_se->dl_deadline == 0) {
+		dl_se->deadline = rq->clock + pi_se->dl_deadline;
+		dl_se->runtime = pi_se->dl_runtime;
+	}
 
 	/*
 	 * We Keep moving the deadline away until we get some
@@ -545,7 +556,7 @@ static void update_curr_dl(struct rq *rq)
 	dl_se->runtime -= delta_exec;
 	if (dl_runtime_exceeded(rq, dl_se)) {
 		__dequeue_task_dl(rq, curr, 0);
-		if (likely(start_dl_timer(dl_se, !!curr->pi_top_task)))
+		if (likely(start_dl_timer(dl_se, curr->dl.dl_boosted)))
 			dl_se->dl_throttled = 1;
 		else
 			enqueue_task_dl(rq, curr, ENQUEUE_REPLENISH);
@@ -734,10 +745,8 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	 * smaller than our one... OTW we keep our runtime and
 	 * deadline.
 	 */
-	BUG_ON(pi_task && !dl_prio(pi_task->prio));
-	if (pi_task && dl_entity_preempt(&pi_task->dl, &p->dl)) {
+	if (pi_task && p->dl.dl_boosted && dl_prio(pi_task->normal_prio))
 		pi_se = &pi_task->dl;
-	}
 
 	/*
 	 * If p is throttled, we do nothing. In fact, if it exhausted
@@ -982,8 +991,7 @@ static void task_dead_dl(struct task_struct *p)
 {
 	struct hrtimer *timer = &p->dl.dl_timer;
 
-	if (hrtimer_active(timer))
-		hrtimer_try_to_cancel(timer);
+	hrtimer_try_to_cancel(timer);
 }
 
 static void set_curr_task_dl(struct rq *rq)
