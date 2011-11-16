@@ -990,7 +990,11 @@ static void task_fork_dl(struct task_struct *p)
 static void task_dead_dl(struct task_struct *p)
 {
 	struct hrtimer *timer = &p->dl.dl_timer;
+#ifdef CONFIG_SMP
 	struct dl_bw *dl_b = &task_rq(p)->rd->dl_bw;
+#else
+	struct dl_bw *dl_b = &task_rq(p)->dl.dl_bw;
+#endif
 
 	/*
 	 * Since we are TASK_DEAD we won't slip out of the domain!

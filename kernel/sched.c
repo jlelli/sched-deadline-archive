@@ -678,6 +678,8 @@ struct dl_rq {
 	 */
 	struct rb_root pushable_dl_tasks_root;
 	struct rb_node *pushable_dl_tasks_leftmost;
+#else
+	struct dl_bw dl_bw;
 #endif
 };
 
@@ -3258,11 +3260,19 @@ bool __dl_overflow(struct dl_bw *dl_b, int cpus, u64 old_bw, u64 new_bw)
 static int dl_overflow(struct task_struct *p, int policy,
 		       const struct sched_param2 *param2)
 {
+#ifdef CONFIG_SMP
 	struct dl_bw *dl_b = &task_rq(p)->rd->dl_bw;
+#else
+	struct dl_bw *dl_b = &task_rq(p)->dl.dl_bw;
+#endif
 	u64 period = param2->sched_period;
 	u64 runtime = param2->sched_runtime;
 	u64 new_bw = dl_policy(policy) ? to_ratio(period, runtime) : 0;
+#ifdef CONFIG_SMP
 	int cpus = cpumask_weight(task_rq(p)->rd->span);
+#else
+	int cpus = 1;
+#endif
 	int err = -1;
 
 	if (new_bw == p->dl.dl_bw)
@@ -5895,6 +5905,7 @@ recheck:
 			return -EPERM;
 		}
 #endif
+#ifdef CONFIG_SMP
 		if (dl_bandwidth_enabled() && dl_policy(policy)) {
 			const struct cpumask *span = rq->rd->span;
 
@@ -5910,6 +5921,7 @@ recheck:
 				return -EPERM;
 			}
 		}
+#endif
 	}
 
 	/* recheck policy now with rq lock held */
@@ -6251,6 +6263,7 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 	 * tasks allowed to run on all the CPUs in the task's
 	 * root_domain.
 	 */
+#ifdef CONFIG_SMP
 	if (task_has_dl_policy(p)) {
 		const struct cpumask *span = task_rq(p)->rd->span;
 
@@ -6260,6 +6273,7 @@ long sched_setaffinity(pid_t pid, const struct cpumask *in_mask)
 			goto out_unlock;
 		}
 	}
+#endif
 
 	cpuset_cpus_allowed(p, cpus_allowed);
 	cpumask_and(new_mask, in_mask, cpus_allowed);
@@ -8903,6 +8917,8 @@ static void init_dl_rq(struct dl_rq *dl_rq, struct rq *rq)
 	dl_rq->dl_nr_migratory = 0;
 	dl_rq->overloaded = 0;
 	dl_rq->pushable_dl_tasks_root = RB_ROOT;
+#else
+	init_dl_bw(&dl_rq->dl_bw);
 #endif
 }
 
@@ -9954,8 +9970,11 @@ static int sched_dl_global_constraints(void)
 	 * solutions is welcome!
 	 */
 	for_each_possible_cpu(i) {
+#ifdef CONFIG_SMP
 		struct dl_bw *dl_b = &cpu_rq(i)->rd->dl_bw;
-
+#else
+		struct dl_bw *dl_b = &cpu_rq(i)->dl.dl_bw;
+#endif
 		raw_spin_lock(&dl_b->lock);
 		if (new_bw < dl_b->total_bw) {
 			raw_spin_unlock(&dl_b->lock);
@@ -10035,7 +10054,11 @@ int sched_dl_handler(struct ctl_table *table, int write,
 			 * FIXME: As above...
 			 */
 			for_each_possible_cpu(i) {
+#ifdef CONFIG_SMP
 				struct dl_bw *dl_b = &cpu_rq(i)->rd->dl_bw;
+#else
+				struct dl_bw *dl_b = &cpu_rq(i)->dl.dl_bw;
+#endif
 
 				raw_spin_lock(&dl_b->lock);
 				dl_b->bw = new_bw;
