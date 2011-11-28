@@ -95,7 +95,7 @@ acpi_ev_install_gpe_block(struct acpi_gpe_block_info *gpe_block,
 
 	/* Install the new block at the end of the list with lock */
 
-	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
+	raw_spin_lock_irqsave(&acpi_gbl_gpe_lock, flags);
 	if (gpe_xrupt_block->gpe_block_list_head) {
 		next_gpe_block = gpe_xrupt_block->gpe_block_list_head;
 		while (next_gpe_block->next) {
@@ -109,7 +109,7 @@ acpi_ev_install_gpe_block(struct acpi_gpe_block_info *gpe_block,
 	}
 
 	gpe_block->xrupt_block = gpe_xrupt_block;
-	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
+	raw_spin_unlock_irqrestore(&acpi_gbl_gpe_lock, flags);
 
       unlock_and_exit:
 	status = acpi_ut_release_mutex(ACPI_MTX_EVENTS);
@@ -156,7 +156,7 @@ acpi_status acpi_ev_delete_gpe_block(struct acpi_gpe_block_info *gpe_block)
 	} else {
 		/* Remove the block on this interrupt with lock */
 
-		flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
+		raw_spin_lock_irqsave(&acpi_gbl_gpe_lock, flags);
 		if (gpe_block->previous) {
 			gpe_block->previous->next = gpe_block->next;
 		} else {
@@ -167,7 +167,7 @@ acpi_status acpi_ev_delete_gpe_block(struct acpi_gpe_block_info *gpe_block)
 		if (gpe_block->next) {
 			gpe_block->next->previous = gpe_block->previous;
 		}
-		acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
+		raw_spin_unlock_irqrestore(&acpi_gbl_gpe_lock, flags);
 	}
 
 	acpi_current_gpe_count -= gpe_block->gpe_count;

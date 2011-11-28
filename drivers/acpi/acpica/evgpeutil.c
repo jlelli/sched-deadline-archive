@@ -70,7 +70,7 @@ acpi_ev_walk_gpe_list(acpi_gpe_callback gpe_walk_callback, void *context)
 
 	ACPI_FUNCTION_TRACE(ev_walk_gpe_list);
 
-	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
+	raw_spin_lock_irqsave(&acpi_gbl_gpe_lock, flags);
 
 	/* Walk the interrupt level descriptor list */
 
@@ -101,7 +101,7 @@ acpi_ev_walk_gpe_list(acpi_gpe_callback gpe_walk_callback, void *context)
 	}
 
       unlock_and_exit:
-	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
+	raw_spin_unlock_irqrestore(&acpi_gbl_gpe_lock, flags);
 	return_ACPI_STATUS(status);
 }
 
@@ -237,7 +237,7 @@ struct acpi_gpe_xrupt_info *acpi_ev_get_gpe_xrupt_block(u32 interrupt_number)
 
 	/* Install new interrupt descriptor with spin lock */
 
-	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
+	raw_spin_lock_irqsave(&acpi_gbl_gpe_lock, flags);
 	if (acpi_gbl_gpe_xrupt_list_head) {
 		next_gpe_xrupt = acpi_gbl_gpe_xrupt_list_head;
 		while (next_gpe_xrupt->next) {
@@ -249,7 +249,7 @@ struct acpi_gpe_xrupt_info *acpi_ev_get_gpe_xrupt_block(u32 interrupt_number)
 	} else {
 		acpi_gbl_gpe_xrupt_list_head = gpe_xrupt;
 	}
-	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
+	raw_spin_unlock_irqrestore(&acpi_gbl_gpe_lock, flags);
 
 	/* Install new interrupt handler if not SCI_INT */
 
@@ -306,7 +306,7 @@ acpi_status acpi_ev_delete_gpe_xrupt(struct acpi_gpe_xrupt_info *gpe_xrupt)
 
 	/* Unlink the interrupt block with lock */
 
-	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
+	raw_spin_lock_irqsave(&acpi_gbl_gpe_lock, flags);
 	if (gpe_xrupt->previous) {
 		gpe_xrupt->previous->next = gpe_xrupt->next;
 	} else {
@@ -318,7 +318,7 @@ acpi_status acpi_ev_delete_gpe_xrupt(struct acpi_gpe_xrupt_info *gpe_xrupt)
 	if (gpe_xrupt->next) {
 		gpe_xrupt->next->previous = gpe_xrupt->previous;
 	}
-	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
+	raw_spin_unlock_irqrestore(&acpi_gbl_gpe_lock, flags);
 
 	/* Free the block */
 
