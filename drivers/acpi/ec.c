@@ -222,7 +222,7 @@ static int ec_poll(struct acpi_ec *ec)
 				if (ec_transaction_done(ec))
 					return 0;
 			} else {
-				if (wait_event_timeout(ec->wait,
+				if (swait_event_timeout(ec->wait,
 						ec_transaction_done(ec),
 						msecs_to_jiffies(1)))
 					return 0;
@@ -272,7 +272,7 @@ static int ec_wait_ibf0(struct acpi_ec *ec)
 	unsigned long delay = jiffies + msecs_to_jiffies(ec_delay);
 	/* interrupt wait manually if GPE mode is not active */
 	while (time_before(jiffies, delay))
-		if (wait_event_timeout(ec->wait, ec_check_ibf0(ec),
+		if (swait_event_timeout(ec->wait, ec_check_ibf0(ec),
 					msecs_to_jiffies(1)))
 			return 0;
 	return -ETIME;
@@ -612,7 +612,7 @@ static u32 acpi_ec_gpe_handler(acpi_handle gpe_device,
 	advance_transaction(ec, acpi_ec_read_status(ec));
 	if (ec_transaction_done(ec) &&
 	    (acpi_ec_read_status(ec) & ACPI_EC_FLAG_IBF) == 0) {
-		wake_up(&ec->wait);
+		swait_wake(&ec->wait);
 		ec_check_sci(ec, acpi_ec_read_status(ec));
 	}
 	return ACPI_INTERRUPT_HANDLED | ACPI_REENABLE_GPE;
@@ -676,7 +676,7 @@ static struct acpi_ec *make_acpi_ec(void)
 		return NULL;
 	ec->flags = 1 << EC_FLAGS_QUERY_PENDING;
 	mutex_init(&ec->lock);
-	init_waitqueue_head(&ec->wait);
+	init_swait_head(&ec->wait);
 	INIT_LIST_HEAD(&ec->list);
 	spin_lock_init(&ec->curr_lock);
 	return ec;
