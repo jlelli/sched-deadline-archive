@@ -2126,8 +2126,11 @@ static int mpage_da_submit_io(struct mpage_da_data *mpd,
 					clear_buffer_unwritten(bh);
 				}
 
-				/* skip page if block allocation undone */
-				if (buffer_delay(bh) || buffer_unwritten(bh))
+				/*
+				 * skip page if block allocation undone and
+				 * block is dirty
+				 */
+				if (ext4_bh_delay_or_unwritten(NULL, bh))
 					skip_page = 1;
 				bh = bh->b_this_page;
 				block_start += bh->b_size;
@@ -3231,7 +3234,7 @@ static int ext4_da_write_end(struct file *file,
 	 */
 
 	new_i_size = pos + copied;
-	if (new_i_size > EXT4_I(inode)->i_disksize) {
+	if (copied && new_i_size > EXT4_I(inode)->i_disksize) {
 		if (ext4_da_should_update_i_disksize(page, end)) {
 			down_write(&EXT4_I(inode)->i_data_sem);
 			if (new_i_size > EXT4_I(inode)->i_disksize) {

@@ -539,6 +539,8 @@ static void coretemp_add_core(unsigned int cpu, int pkg_flag)
 		return;
 
 	pdata = platform_get_drvdata(pdev);
+	if (!pdata)
+		return;
 
 	err = create_core_data(pdata, pdev, cpu, pkg_flag);
 	if (err)
@@ -745,6 +747,8 @@ static void __cpuinit put_core_offline(unsigned int cpu)
 		return;
 
 	pdata = platform_get_drvdata(pdev);
+	if (!pdata)
+		return;
 
 	indx = TO_ATTR_NO(cpu);
 

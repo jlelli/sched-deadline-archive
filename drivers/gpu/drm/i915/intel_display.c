@@ -4972,7 +4972,7 @@ static int ironlake_crtc_mode_set(struct drm_crtc *crtc,
 	} else if (is_sdvo && is_tv)
 		factor = 20;
 
-	if (clock.m1 < factor * clock.n)
+	if (clock.m < factor * clock.n)
 		fp |= FP_CB_TUNE;
 
 	dpll = 0;
@@ -7404,6 +7404,20 @@ static void gen6_init_clock_gating(struct drm_device *dev)
 	I915_WRITE(WM3_LP_ILK, 0);
 	I915_WRITE(WM2_LP_ILK, 0);
 	I915_WRITE(WM1_LP_ILK, 0);
+
+	/* According to the BSpec vol1g, bit 12 (RCPBUNIT) clock
+	 * gating disable must be set.  Failure to set it results in
+	 * flickering pixels due to Z write ordering failures after
+	 * some amount of runtime in the Mesa "fire" demo, and Unigine
+	 * Sanctuary and Tropics, and apparently anything else with
+	 * alpha test or pixel discard.
+	 *
+	 * According to the spec, bit 11 (RCCUNIT) must also be set,
+	 * but we didn't debug actual testcases to find it out.
+	 */
+	I915_WRITE(GEN6_UCGCTL2,
+		   GEN6_RCPBUNIT_CLOCK_GATE_DISABLE |
+		   GEN6_RCCUNIT_CLOCK_GATE_DISABLE);
 
 	/*
 	 * According to the spec the following bits should be
