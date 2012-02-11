@@ -14,15 +14,18 @@
 #include <linux/gfp.h>
 #include "sched_cpudl.h"
 
-static inline int parent(int i) {
+static inline int parent(int i)
+{
 	return (i - 1) >> 1;
 }
 
-static inline int left_child(int i) {
+static inline int left_child(int i)
+{
 	return (i << 1) + 1;
 }
 
-static inline int right_child(int i) {
+static inline int right_child(int i)
+{
 	return (i << 1) + 2;
 }
 
@@ -31,7 +34,8 @@ static inline int dl_time_before(u64 a, u64 b)
         return (s64)(a - b) < 0;
 }
 
-void cpudl_exchange(struct cpudl *cp, int a, int b) {
+void cpudl_exchange(struct cpudl *cp, int a, int b)
+{
 	int cpu_tmp;
 	u64 dl_a = cp->elements[a].dl, dl_b = cp->elements[b].dl;
 	int cpu_a = cp->elements[a].cpu, cpu_b = cp->elements[b].cpu;
@@ -46,16 +50,19 @@ void cpudl_exchange(struct cpudl *cp, int a, int b) {
         cp->cpu_to_idx[cpu_a] = cpu_tmp;
 }
 
-void cpudl_heapify(struct cpudl *cp, int idx, int *new_idx) {
+void cpudl_heapify(struct cpudl *cp, int idx, int *new_idx)
+{
         int l, r, largest;
 
         l = left_child(idx);
         r = right_child(idx);
-        if ((l <= cp->size) && (cp->elements[l].dl > cp->elements[idx].dl))
+	if ((l <= cp->size) && dl_time_before(cp->elements[idx].dl,
+				cp->elements[l].dl))
                 largest = l;
         else
                 largest = idx;
-        if ((r <= cp->size) && (cp->elements[r].dl > cp->elements[largest].dl))
+	if ((r <= cp->size) && dl_time_before(cp->elements[largest].dl,
+				cp->elements[r].dl))
                 largest = r;
         if (largest != idx) {
                 cpudl_exchange(cp, largest, idx);
@@ -65,7 +72,8 @@ void cpudl_heapify(struct cpudl *cp, int idx, int *new_idx) {
 }
 
 int cpudl_change_key(struct cpudl *cp,
-		int idx, u64 new_dl) {
+		int idx, u64 new_dl)
+{
 	cp->elements[idx].dl = new_dl;
 
 	WARN_ON(idx > num_present_cpus() && idx != -1);
@@ -83,7 +91,8 @@ int cpudl_change_key(struct cpudl *cp,
 	return idx;
 }
 
-static inline int cpudl_maximum(struct cpudl *cp) {
+static inline int cpudl_maximum(struct cpudl *cp)
+{
 	return cp->elements[0].cpu;
 }
 
@@ -96,7 +105,8 @@ static inline int cpudl_maximum(struct cpudl *cp) {
  * Returns: int - best CPU (heap maximum if suitable)
  */
 int cpudl_find(struct cpudl *cp, struct cpumask *dlo_mask,
-		struct task_struct *p, struct cpumask *later_mask) {
+		struct task_struct *p, struct cpumask *later_mask)
+{
 	int best_cpu = -1;
 	const struct sched_dl_entity *dl_se = &p->dl;
 
@@ -128,7 +138,8 @@ out:
  *
  * Returns: (void)
  */
-void cpudl_set(struct cpudl *cp, int cpu, u64 dl) {
+void cpudl_set(struct cpudl *cp, int cpu, u64 dl, int is_valid)
+{
 	int idx, old_idx;
 	unsigned long flags;
 
@@ -136,7 +147,7 @@ void cpudl_set(struct cpudl *cp, int cpu, u64 dl) {
 
 	raw_spin_lock_irqsave(&cp->lock, flags);
 	old_idx = cp->cpu_to_idx[cpu];
-	if (dl == CPUDL_INVALID) {
+	if (!is_valid) {
 		/* remove item */
 		int new_cpu = cp->elements[cp->size - 1].cpu;
                 cp->elements[old_idx].dl = cp->elements[cp->size - 1].dl;
@@ -144,6 +155,12 @@ void cpudl_set(struct cpudl *cp, int cpu, u64 dl) {
 		cp->size--;
                 cp->cpu_to_idx[new_cpu] = old_idx;
                 cp->cpu_to_idx[cpu] = IDX_INVALID;
+		while (old_idx > 0 &&
+			dl_time_before(cp->elements[parent(old_idx)].dl,
+				cp->elements[old_idx].dl)) {
+			cpudl_exchange(cp, old_idx, parent(old_idx));
+			old_idx = parent(old_idx);
+		}
 		cpumask_set_cpu(cpu, cp->free_cpus);
                 cpudl_heapify(cp, old_idx, NULL);
 
@@ -152,7 +169,7 @@ void cpudl_set(struct cpudl *cp, int cpu, u64 dl) {
 
 	if (old_idx == IDX_INVALID) {
 		cp->size++;
-		cp->elements[cp->size - 1].dl = -1;
+		cp->elements[cp->size - 1].dl = 0;
 		cp->elements[cp->size - 1].cpu = cpu;
 		cp->cpu_to_idx[cpu] = cp->size - 1;
 		idx = cpudl_change_key(cp, cp->size - 1, dl);
@@ -171,7 +188,8 @@ out:
  * cpudl_init - initialize the cpudl structure
  * @cp: the cpudl max-heap context
  */
-int cpudl_init(struct cpudl *cp) {
+int cpudl_init(struct cpudl *cp)
+{
 	int i;
 
 	memset(cp, 0, sizeof(*cp));
@@ -190,6 +208,7 @@ int cpudl_init(struct cpudl *cp) {
  * cpudl_cleanup - clean up the cpudl structure
  * @cp: the cpudl max-heap context
  */
-void cpudl_cleanup(struct cpudl *cp) {
+void cpudl_cleanup(struct cpudl *cp)
+{
 	//nothing to do for the moment
 }

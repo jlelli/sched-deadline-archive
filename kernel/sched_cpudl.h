@@ -3,9 +3,7 @@
 
 #include <linux/sched.h>
 
-#define CPUDL_INVALID	-1
 #define IDX_INVALID     -1
-#define MAX_CPU         -1
 
 struct array_item {
         u64 dl;
@@ -25,7 +23,7 @@ struct cpudl {
 #ifdef CONFIG_SMP
 int cpudl_find(struct cpudl *cp, struct cpumask *dlo_mask,
 		struct task_struct *p, struct cpumask *later_mask);
-void cpudl_set(struct cpudl *cp, int cpu, u64 dl);
+void cpudl_set(struct cpudl *cp, int cpu, u64 dl, int is_valid);
 int cpudl_init(struct cpudl *cp);
 void cpudl_cleanup(struct cpudl *cp);
 #else
