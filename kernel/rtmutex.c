@@ -154,6 +154,7 @@ rt_mutex_dequeue(struct rt_mutex *lock, struct rt_mutex_waiter *waiter)
 		lock->waiters_leftmost = rb_next(&waiter->tree_entry);
 
 	rb_erase(&waiter->tree_entry, &lock->waiters);
+	RB_CLEAR_NODE(&waiter->tree_entry);
 }
 
 static void
@@ -192,6 +193,7 @@ rt_mutex_dequeue_pi(struct task_struct *task, struct rt_mutex_waiter *waiter)
 		task->pi_waiters_leftmost = rb_next(&waiter->pi_tree_entry);
 
 	rb_erase(&waiter->pi_tree_entry, &task->pi_waiters);
+	RB_CLEAR_NODE(&waiter->pi_tree_entry);
 }
 
 static inline void init_lists(struct rt_mutex *lock)
