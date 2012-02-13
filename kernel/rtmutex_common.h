@@ -133,6 +133,8 @@ rt_mutex_init_waiter(struct rt_mutex_waiter *waiter, bool savestate)
 	debug_rt_mutex_init_waiter(waiter);
 	waiter->task = NULL;
 	waiter->savestate = savestate;
+	rb_init_node(&waiter->tree_entry);
+	rb_init_node(&waiter->pi_tree_entry);
 }
 
 #endif
