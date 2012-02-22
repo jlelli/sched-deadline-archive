@@ -177,10 +177,33 @@ typedef struct {
 /*
  * Read side functions for starting and finalizing a read side section.
  */
+#ifndef CONFIG_PREEMPT_RT_FULL
 static inline unsigned read_seqbegin(const seqlock_t *sl)
 {
 	return read_seqcount_begin(&sl->seqcount);
 }
+#else
+/*
+ * Starvation safe read side for RT
+ */
+static inline unsigned read_seqbegin(seqlock_t *sl)
+{
+	unsigned ret;
+
+repeat:
+	ret = sl->seqcount.sequence;
+	if (unlikely(ret & 1)) {
+		/*
+		 * Take the lock and let the writer proceed (i.e. evtl
+		 * boost it), otherwise we could loop here forever.
+		 */
+		spin_lock(&sl->lock);
+		spin_unlock(&sl->lock);
+		goto repeat;
+	}
+	return ret;
+}
+#endif
 
 static inline unsigned read_seqretry(const seqlock_t *sl, unsigned start)
 {
