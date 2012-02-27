@@ -99,7 +99,7 @@ static struct dentry *get_next_positive_subdir(struct dentry *prev,
 	spin_lock(&sbi->lookup_lock);
 
 	if (prev == NULL) {
-		spin_lock(&root->d_lock);
+		seq_spin_lock(&root->d_lock);
 		prev = dget_dlock(root);
 		next = prev->d_subdirs.next;
 		p = prev;
@@ -107,12 +107,12 @@ static struct dentry *get_next_positive_subdir(struct dentry *prev,
 	}
 
 	p = prev;
-	spin_lock(&p->d_lock);
+	seq_spin_lock(&p->d_lock);
 again:
 	next = p->d_u.d_child.next;
 start:
 	if (next == &root->d_subdirs) {
-		spin_unlock(&p->d_lock);
+		seq_spin_unlock(&p->d_lock);
 		spin_unlock(&sbi->lookup_lock);
 		dput(prev);
 		return NULL;
@@ -120,16 +120,16 @@ start:
 
 	q = list_entry(next, struct dentry, d_u.d_child);
 
-	spin_lock_nested(&q->d_lock, DENTRY_D_LOCK_NESTED);
+	seq_spin_lock_nested(&q->d_lock, DENTRY_D_LOCK_NESTED);
 	/* Negative dentry - try next */
 	if (!simple_positive(q)) {
-		spin_unlock(&p->d_lock);
+		seq_spin_unlock(&p->d_lock);
 		p = q;
 		goto again;
 	}
 	dget_dlock(q);
-	spin_unlock(&q->d_lock);
-	spin_unlock(&p->d_lock);
+	seq_spin_unlock(&q->d_lock);
+	seq_spin_unlock(&p->d_lock);
 	spin_unlock(&sbi->lookup_lock);
 
 	dput(prev);
@@ -153,7 +153,7 @@ static struct dentry *get_next_positive_dentry(struct dentry *prev,
 	spin_lock(&sbi->lookup_lock);
 relock:
 	p = prev;
-	spin_lock(&p->d_lock);
+	seq_spin_lock(&p->d_lock);
 again:
 	next = p->d_subdirs.next;
 	if (next == &p->d_subdirs) {
@@ -161,19 +161,19 @@ again:
 			struct dentry *parent;
 
 			if (p == root) {
-				spin_unlock(&p->d_lock);
+				seq_spin_unlock(&p->d_lock);
 				spin_unlock(&sbi->lookup_lock);
 				dput(prev);
 				return NULL;
 			}
 
 			parent = p->d_parent;
-			if (!spin_trylock(&parent->d_lock)) {
-				spin_unlock(&p->d_lock);
+			if (!seq_spin_trylock(&parent->d_lock)) {
+				seq_spin_unlock(&p->d_lock);
 				cpu_relax();
 				goto relock;
 			}
-			spin_unlock(&p->d_lock);
+			seq_spin_unlock(&p->d_lock);
 			next = p->d_u.d_child.next;
 			p = parent;
 			if (next != &parent->d_subdirs)
@@ -182,16 +182,16 @@ again:
 	}
 	ret = list_entry(next, struct dentry, d_u.d_child);
 
-	spin_lock_nested(&ret->d_lock, DENTRY_D_LOCK_NESTED);
+	seq_spin_lock_nested(&ret->d_lock, DENTRY_D_LOCK_NESTED);
 	/* Negative dentry - try next */
 	if (!simple_positive(ret)) {
-		spin_unlock(&p->d_lock);
+		seq_spin_unlock(&p->d_lock);
 		p = ret;
 		goto again;
 	}
 	dget_dlock(ret);
-	spin_unlock(&ret->d_lock);
-	spin_unlock(&p->d_lock);
+	seq_spin_unlock(&ret->d_lock);
+	seq_spin_unlock(&p->d_lock);
 	spin_unlock(&sbi->lookup_lock);
 
 	dput(prev);
@@ -462,11 +462,11 @@ found:
 	init_completion(&ino->expire_complete);
 	spin_unlock(&sbi->fs_lock);
 	spin_lock(&sbi->lookup_lock);
-	spin_lock(&expired->d_parent->d_lock);
-	spin_lock_nested(&expired->d_lock, DENTRY_D_LOCK_NESTED);
+	seq_spin_lock(&expired->d_parent->d_lock);
+	seq_spin_lock_nested(&expired->d_lock, DENTRY_D_LOCK_NESTED);
 	list_move(&expired->d_parent->d_subdirs, &expired->d_u.d_child);
-	spin_unlock(&expired->d_lock);
-	spin_unlock(&expired->d_parent->d_lock);
+	seq_spin_unlock(&expired->d_lock);
+	seq_spin_unlock(&expired->d_parent->d_lock);
 	spin_unlock(&sbi->lookup_lock);
 	return expired;
 }
@@ -556,7 +556,7 @@ int autofs4_do_expire_multi(struct super_block *sb, struct vfsmount *mnt,
 
 		spin_lock(&sbi->fs_lock);
 		ino->flags &= ~AUTOFS_INF_EXPIRING;
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		if (!ret) {
 			if ((IS_ROOT(dentry) ||
 			    (autofs_type_indirect(sbi->type) &&
@@ -564,7 +564,7 @@ int autofs4_do_expire_multi(struct super_block *sb, struct vfsmount *mnt,
 			    !(dentry->d_flags & DCACHE_NEED_AUTOMOUNT))
 				__managed_dentry_set_automount(dentry);
 		}
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		complete_all(&ino->expire_complete);
 		spin_unlock(&sbi->fs_lock);
 		dput(dentry);

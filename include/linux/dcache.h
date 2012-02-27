@@ -116,7 +116,7 @@ full_name_hash(const unsigned char *name, unsigned int len)
 struct dentry {
 	/* RCU lookup touched fields */
 	unsigned int d_flags;		/* protected by d_lock */
-	seqcount_t d_seq;		/* per dentry seqlock */
+	seqlock_t d_lock;		/* per dentry seqlock */
 	struct hlist_bl_node d_hash;	/* lookup hash list */
 	struct dentry *d_parent;	/* parent directory */
 	struct qstr d_name;
@@ -126,7 +126,6 @@ struct dentry {
 
 	/* Ref lookup also touches following */
 	unsigned int d_count;		/* protected by d_lock */
-	spinlock_t d_lock;		/* per dentry lock */
 	const struct dentry_operations *d_op;
 	struct super_block *d_sb;	/* The root of the dentry tree */
 	unsigned long d_time;		/* used by d_revalidate */
@@ -324,8 +323,8 @@ static inline int __d_rcu_to_refcount(struct dentry *dentry, unsigned seq)
 {
 	int ret = 0;
 
-	assert_spin_locked(&dentry->d_lock);
-	if (!read_seqcount_retry(&dentry->d_seq, seq)) {
+	assert_seq_spin_locked(&dentry->d_lock);
+	if (!read_seqretry(&dentry->d_lock, seq)) {
 		ret = 1;
 		dentry->d_count++;
 	}
@@ -368,9 +367,9 @@ static inline struct dentry *dget_dlock(struct dentry *dentry)
 static inline struct dentry *dget(struct dentry *dentry)
 {
 	if (dentry) {
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		dget_dlock(dentry);
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 	}
 	return dentry;
 }
@@ -401,9 +400,9 @@ static inline int cant_mount(struct dentry *dentry)
 
 static inline void dont_mount(struct dentry *dentry)
 {
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	dentry->d_flags |= DCACHE_CANT_MOUNT;
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 }
 
 extern void dput(struct dentry *);

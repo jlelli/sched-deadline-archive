@@ -329,7 +329,7 @@ static inline void __fsnotify_update_dcache_flags(struct dentry *dentry)
 {
 	struct dentry *parent;
 
-	assert_spin_locked(&dentry->d_lock);
+	assert_seq_spin_locked(&dentry->d_lock);
 
 	/*
 	 * Serialisation of setting PARENT_WATCHED on the dentries is provided
@@ -353,9 +353,9 @@ static inline void __fsnotify_d_instantiate(struct dentry *dentry, struct inode 
 	if (!inode)
 		return;
 
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	__fsnotify_update_dcache_flags(dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 }
 
 /* called from fsnotify listeners, such as fanotify or dnotify */

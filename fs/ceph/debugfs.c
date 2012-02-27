@@ -82,13 +82,13 @@ static int mdsc_show(struct seq_file *s, void *p)
 						    &pathbase, 0);
 			if (IS_ERR(path))
 				path = NULL;
-			spin_lock(&req->r_dentry->d_lock);
+			seq_spin_lock(&req->r_dentry->d_lock);
 			seq_printf(s, " #%llx/%.*s (%s)",
 				   ceph_ino(req->r_dentry->d_parent->d_inode),
 				   req->r_dentry->d_name.len,
 				   req->r_dentry->d_name.name,
 				   path ? path : "");
-			spin_unlock(&req->r_dentry->d_lock);
+			seq_spin_unlock(&req->r_dentry->d_lock);
 			kfree(path);
 		} else if (req->r_path1) {
 			seq_printf(s, " #%llx/%s", req->r_ino1.ino,
@@ -100,13 +100,13 @@ static int mdsc_show(struct seq_file *s, void *p)
 						    &pathbase, 0);
 			if (IS_ERR(path))
 				path = NULL;
-			spin_lock(&req->r_old_dentry->d_lock);
+			seq_spin_lock(&req->r_old_dentry->d_lock);
 			seq_printf(s, " #%llx/%.*s (%s)",
 			   ceph_ino(req->r_old_dentry->d_parent->d_inode),
 				   req->r_old_dentry->d_name.len,
 				   req->r_old_dentry->d_name.name,
 				   path ? path : "");
-			spin_unlock(&req->r_old_dentry->d_lock);
+			seq_spin_unlock(&req->r_old_dentry->d_lock);
 			kfree(path);
 		} else if (req->r_path2) {
 			if (req->r_ino2.ino)

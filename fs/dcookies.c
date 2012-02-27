@@ -98,9 +98,9 @@ static struct dcookie_struct *alloc_dcookie(struct path *path)
 		return NULL;
 
 	d = path->dentry;
-	spin_lock(&d->d_lock);
+	seq_spin_lock(&d->d_lock);
 	d->d_flags |= DCACHE_COOKIE;
-	spin_unlock(&d->d_lock);
+	seq_spin_unlock(&d->d_lock);
 
 	dcs->path = *path;
 	path_get(path);
@@ -267,9 +267,9 @@ static void free_dcookie(struct dcookie_struct * dcs)
 {
 	struct dentry *d = dcs->path.dentry;
 
-	spin_lock(&d->d_lock);
+	seq_spin_lock(&d->d_lock);
 	d->d_flags &= ~DCACHE_COOKIE;
-	spin_unlock(&d->d_lock);
+	seq_spin_unlock(&d->d_lock);
 
 	path_put(&dcs->path);
 	kmem_cache_free(dcookie_cache, dcs);

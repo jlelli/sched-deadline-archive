@@ -40,14 +40,14 @@ static int btrfs_encode_fh(struct dentry *dentry, u32 *fh, int *max_len,
 		struct inode *parent;
 		u64 parent_root_id;
 
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 
 		parent = dentry->d_parent->d_inode;
 		fid->parent_objectid = BTRFS_I(parent)->location.objectid;
 		fid->parent_gen = parent->i_generation;
 		parent_root_id = BTRFS_I(parent)->root->objectid;
 
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 
 		if (parent_root_id != fid->root_objectid) {
 			fid->parent_root_objectid = parent_root_id;
