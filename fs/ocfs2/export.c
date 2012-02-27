@@ -214,7 +214,7 @@ static int ocfs2_encode_fh(struct dentry *dentry, u32 *fh_in, int *max_len,
 	if (connectable && !S_ISDIR(inode->i_mode)) {
 		struct inode *parent;
 
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 
 		parent = dentry->d_parent->d_inode;
 		blkno = OCFS2_I(parent)->ip_blkno;
@@ -224,7 +224,7 @@ static int ocfs2_encode_fh(struct dentry *dentry, u32 *fh_in, int *max_len,
 		fh[4] = cpu_to_le32((u32)(blkno & 0xffffffff));
 		fh[5] = cpu_to_le32(generation);
 
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 
 		len = 6;
 		type = 2;

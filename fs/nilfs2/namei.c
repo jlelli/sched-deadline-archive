@@ -543,11 +543,11 @@ static int nilfs_encode_fh(struct dentry *dentry, __u32 *fh, int *lenp,
 	if (connectable && !S_ISDIR(inode->i_mode)) {
 		struct inode *parent;
 
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		parent = dentry->d_parent->d_inode;
 		fid->parent_ino = parent->i_ino;
 		fid->parent_gen = parent->i_generation;
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 
 		type = FILEID_NILFS_WITH_PARENT;
 		*lenp = NILFS_FID_SIZE_CONNECTABLE;

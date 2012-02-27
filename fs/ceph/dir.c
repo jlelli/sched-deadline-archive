@@ -52,7 +52,7 @@ int ceph_init_dentry(struct dentry *dentry)
 	if (!di)
 		return -ENOMEM;          /* oh well */
 
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	if (dentry->d_fsdata) {
 		/* lost a race */
 		kmem_cache_free(ceph_dentry_cachep, di);
@@ -64,7 +64,7 @@ int ceph_init_dentry(struct dentry *dentry)
 	dentry->d_time = jiffies;
 	ceph_dentry_lru_add(dentry);
 out_unlock:
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 	return 0;
 }
 
@@ -112,7 +112,7 @@ static int __dcache_readdir(struct file *filp,
 	dout("__dcache_readdir %p at %llu (last %p)\n", dir, filp->f_pos,
 	     last);
 
-	spin_lock(&parent->d_lock);
+	seq_spin_lock(&parent->d_lock);
 
 	/* start at beginning? */
 	if (filp->f_pos == 2 || last == NULL ||
@@ -136,7 +136,7 @@ more:
 			fi->at_end = 1;
 			goto out_unlock;
 		}
-		spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
+		seq_spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
 		if (!d_unhashed(dentry) && dentry->d_inode &&
 		    ceph_snap(dentry->d_inode) != CEPH_SNAPDIR &&
 		    ceph_ino(dentry->d_inode) != CEPH_INO_CEPH &&
@@ -146,15 +146,15 @@ more:
 		     dentry->d_name.len, dentry->d_name.name, di->offset,
 		     filp->f_pos, d_unhashed(dentry) ? " unhashed" : "",
 		     !dentry->d_inode ? " null" : "");
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		p = p->prev;
 		dentry = list_entry(p, struct dentry, d_u.d_child);
 		di = ceph_dentry(dentry);
 	}
 
 	dget_dlock(dentry);
-	spin_unlock(&dentry->d_lock);
-	spin_unlock(&parent->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&parent->d_lock);
 
 	dout(" %llu (%llu) dentry %p %.*s %p\n", di->offset, filp->f_pos,
 	     dentry, dentry->d_name.len, dentry->d_name.name, dentry->d_inode);
@@ -187,12 +187,12 @@ more:
 		goto out;
 	}
 
-	spin_lock(&parent->d_lock);
+	seq_spin_lock(&parent->d_lock);
 	p = p->prev;	/* advance to next dentry */
 	goto more;
 
 out_unlock:
-	spin_unlock(&parent->d_lock);
+	seq_spin_unlock(&parent->d_lock);
 out:
 	if (last)
 		dput(last);
@@ -917,10 +917,10 @@ static int ceph_rename(struct inode *old_dir, struct dentry *old_dentry,
  */
 void ceph_invalidate_dentry_lease(struct dentry *dentry)
 {
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	dentry->d_time = jiffies;
 	ceph_dentry(dentry)->lease_shared_gen = 0;
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 }
 
 /*
@@ -938,7 +938,7 @@ static int dentry_lease_is_valid(struct dentry *dentry)
 	struct inode *dir = NULL;
 	u32 seq = 0;
 
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	di = ceph_dentry(dentry);
 	if (di && di->lease_session) {
 		s = di->lease_session;
@@ -962,7 +962,7 @@ static int dentry_lease_is_valid(struct dentry *dentry)
 			}
 		}
 	}
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 
 	if (session) {
 		ceph_mdsc_lease_send_msg(session, dir, dentry,

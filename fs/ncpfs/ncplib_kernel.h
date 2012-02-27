@@ -191,7 +191,7 @@ ncp_renew_dentries(struct dentry *parent)
 	struct list_head *next;
 	struct dentry *dentry;
 
-	spin_lock(&parent->d_lock);
+	seq_spin_lock(&parent->d_lock);
 	next = parent->d_subdirs.next;
 	while (next != &parent->d_subdirs) {
 		dentry = list_entry(next, struct dentry, d_u.d_child);
@@ -203,7 +203,7 @@ ncp_renew_dentries(struct dentry *parent)
 
 		next = next->next;
 	}
-	spin_unlock(&parent->d_lock);
+	seq_spin_unlock(&parent->d_lock);
 }
 
 static inline void
@@ -213,7 +213,7 @@ ncp_invalidate_dircache_entries(struct dentry *parent)
 	struct list_head *next;
 	struct dentry *dentry;
 
-	spin_lock(&parent->d_lock);
+	seq_spin_lock(&parent->d_lock);
 	next = parent->d_subdirs.next;
 	while (next != &parent->d_subdirs) {
 		dentry = list_entry(next, struct dentry, d_u.d_child);
@@ -221,7 +221,7 @@ ncp_invalidate_dircache_entries(struct dentry *parent)
 		ncp_age_dentry(server, dentry);
 		next = next->next;
 	}
-	spin_unlock(&parent->d_lock);
+	seq_spin_unlock(&parent->d_lock);
 }
 
 struct ncp_cache_head {

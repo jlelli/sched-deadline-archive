@@ -53,11 +53,11 @@ static int gfs2_encode_fh(struct dentry *dentry, __u32 *p, int *len,
 	if (!connectable || inode == sb->s_root->d_inode)
 		return *len;
 
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	inode = dentry->d_parent->d_inode;
 	ip = GFS2_I(inode);
 	igrab(inode);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 
 	fh[4] = cpu_to_be32(ip->i_no_formal_ino >> 32);
 	fh[5] = cpu_to_be32(ip->i_no_formal_ino & 0xFFFFFFFF);

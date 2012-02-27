@@ -804,7 +804,7 @@ static void update_dentry_lease(struct dentry *dentry,
 	if (dentry->d_op != &ceph_dentry_ops)
 		return;
 
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	dout("update_dentry_lease %p mask %d duration %lu ms ttl %lu\n",
 	     dentry, le16_to_cpu(lease->mask), duration, ttl);
 
@@ -832,7 +832,7 @@ static void update_dentry_lease(struct dentry *dentry,
 	di->lease_renew_from = 0;
 	dentry->d_time = ttl;
 out_unlock:
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 	return;
 }
 
@@ -858,13 +858,13 @@ static void ceph_set_dentry_offset(struct dentry *dn)
 	di->offset = ceph_inode(inode)->i_max_offset++;
 	spin_unlock(&inode->i_lock);
 
-	spin_lock(&dir->d_lock);
-	spin_lock_nested(&dn->d_lock, DENTRY_D_LOCK_NESTED);
+	seq_spin_lock(&dir->d_lock);
+	seq_spin_lock_nested(&dn->d_lock, DENTRY_D_LOCK_NESTED);
 	list_move(&dn->d_u.d_child, &dir->d_subdirs);
 	dout("set_dentry_offset %p %lld (%p %p)\n", dn, di->offset,
 	     dn->d_u.d_child.prev, dn->d_u.d_child.next);
-	spin_unlock(&dn->d_lock);
-	spin_unlock(&dir->d_lock);
+	seq_spin_unlock(&dn->d_lock);
+	seq_spin_unlock(&dir->d_lock);
 }
 
 /*
@@ -1248,11 +1248,11 @@ retry_lookup:
 			goto retry_lookup;
 		} else {
 			/* reorder parent's d_subdirs */
-			spin_lock(&parent->d_lock);
-			spin_lock_nested(&dn->d_lock, DENTRY_D_LOCK_NESTED);
+			seq_spin_lock(&parent->d_lock);
+			seq_spin_lock_nested(&dn->d_lock, DENTRY_D_LOCK_NESTED);
 			list_move(&dn->d_u.d_child, &parent->d_subdirs);
-			spin_unlock(&dn->d_lock);
-			spin_unlock(&parent->d_lock);
+			seq_spin_unlock(&dn->d_lock);
+			seq_spin_unlock(&parent->d_lock);
 		}
 
 		di = dn->d_fsdata;
