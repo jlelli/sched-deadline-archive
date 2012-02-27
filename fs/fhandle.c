@@ -115,10 +115,10 @@ static struct vfsmount *get_vfsmount_from_fd(int fd)
 
 	if (fd == AT_FDCWD) {
 		struct fs_struct *fs = current->fs;
-		spin_lock(&fs->lock);
+		seq_spin_lock(&fs->lock);
 		path = fs->pwd;
 		mntget(path.mnt);
-		spin_unlock(&fs->lock);
+		seq_spin_unlock(&fs->lock);
 	} else {
 		int fput_needed;
 		struct file *file = fget_light(fd, &fput_needed);

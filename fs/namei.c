@@ -424,7 +424,7 @@ static int unlazy_walk(struct nameidata *nd, struct dentry *dentry)
 	BUG_ON(!(nd->flags & LOOKUP_RCU));
 	if (nd->root.mnt && !(nd->flags & LOOKUP_ROOT)) {
 		want_root = 1;
-		spin_lock(&fs->lock);
+		seq_spin_lock(&fs->lock);
 		if (nd->root.mnt != fs->root.mnt ||
 				nd->root.dentry != fs->root.dentry)
 			goto err_root;
@@ -454,7 +454,7 @@ static int unlazy_walk(struct nameidata *nd, struct dentry *dentry)
 	spin_unlock(&parent->d_lock);
 	if (want_root) {
 		path_get(&nd->root);
-		spin_unlock(&fs->lock);
+		seq_spin_unlock(&fs->lock);
 	}
 	mntget(nd->path.mnt);
 
@@ -469,7 +469,7 @@ err_parent:
 	spin_unlock(&parent->d_lock);
 err_root:
 	if (want_root)
-		spin_unlock(&fs->lock);
+		seq_spin_unlock(&fs->lock);
 	return -ECHILD;
 }
 
@@ -619,10 +619,10 @@ static __always_inline void set_root_rcu(struct nameidata *nd)
 		unsigned seq;
 
 		do {
-			seq = read_seqcount_begin(&fs->seq);
+			seq = read_seqbegin(&fs->lock);
 			nd->root = fs->root;
 			nd->seq = __read_seqcount_begin(&nd->root.dentry->d_seq);
-		} while (read_seqcount_retry(&fs->seq, seq));
+		} while (read_seqretry(&fs->lock, seq));
 	}
 }
 
@@ -1501,10 +1501,10 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 			rcu_read_lock();
 
 			do {
-				seq = read_seqcount_begin(&fs->seq);
+				seq = read_seqbegin(&fs->lock);
 				nd->path = fs->pwd;
 				nd->seq = __read_seqcount_begin(&nd->path.dentry->d_seq);
-			} while (read_seqcount_retry(&fs->seq, seq));
+			} while (read_seqretry(&fs->lock, seq));
 		} else {
 			get_fs_pwd(current->fs, &nd->path);
 		}
