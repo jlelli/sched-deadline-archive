@@ -1230,7 +1230,7 @@ int check_unsafe_exec(struct linux_binprm *bprm)
 	bprm->unsafe = tracehook_unsafe_exec(p);
 
 	n_fs = 1;
-	spin_lock(&p->fs->lock);
+	seq_spin_lock(&p->fs->lock);
 	rcu_read_lock();
 	for (t = next_thread(p); t != p; t = next_thread(t)) {
 		if (t->fs == p->fs)
@@ -1247,7 +1247,7 @@ int check_unsafe_exec(struct linux_binprm *bprm)
 			res = 1;
 		}
 	}
-	spin_unlock(&p->fs->lock);
+	seq_spin_unlock(&p->fs->lock);
 
 	return res;
 }
