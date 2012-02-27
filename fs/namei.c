@@ -429,7 +429,7 @@ static int unlazy_walk(struct nameidata *nd, struct dentry *dentry)
 				nd->root.dentry != fs->root.dentry)
 			goto err_root;
 	}
-	spin_lock(&parent->d_lock);
+	seq_spin_lock(&parent->d_lock);
 	if (!dentry) {
 		if (!__d_rcu_to_refcount(parent, nd->seq))
 			goto err_parent;
@@ -437,7 +437,7 @@ static int unlazy_walk(struct nameidata *nd, struct dentry *dentry)
 	} else {
 		if (dentry->d_parent != parent)
 			goto err_parent;
-		spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
+		seq_spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
 		if (!__d_rcu_to_refcount(dentry, nd->seq))
 			goto err_child;
 		/*
@@ -449,9 +449,9 @@ static int unlazy_walk(struct nameidata *nd, struct dentry *dentry)
 		BUG_ON(!IS_ROOT(dentry) && dentry->d_parent != parent);
 		BUG_ON(!parent->d_count);
 		parent->d_count++;
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 	}
-	spin_unlock(&parent->d_lock);
+	seq_spin_unlock(&parent->d_lock);
 	if (want_root) {
 		path_get(&nd->root);
 		seq_spin_unlock(&fs->lock);
@@ -464,9 +464,9 @@ static int unlazy_walk(struct nameidata *nd, struct dentry *dentry)
 	return 0;
 
 err_child:
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 err_parent:
-	spin_unlock(&parent->d_lock);
+	seq_spin_unlock(&parent->d_lock);
 err_root:
 	if (want_root)
 		seq_spin_unlock(&fs->lock);
@@ -535,15 +535,15 @@ static int complete_walk(struct nameidata *nd)
 		nd->flags &= ~LOOKUP_RCU;
 		if (!(nd->flags & LOOKUP_ROOT))
 			nd->root.mnt = NULL;
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		if (unlikely(!__d_rcu_to_refcount(dentry, nd->seq))) {
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			rcu_read_unlock();
 			br_read_unlock(vfsmount_lock);
 			return -ECHILD;
 		}
 		BUG_ON(nd->inode != dentry->d_inode);
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		mntget(nd->path.mnt);
 		rcu_read_unlock();
 		br_read_unlock(vfsmount_lock);
@@ -621,7 +621,7 @@ static __always_inline void set_root_rcu(struct nameidata *nd)
 		do {
 			seq = read_seqbegin(&fs->lock);
 			nd->root = fs->root;
-			nd->seq = __read_seqcount_begin(&nd->root.dentry->d_seq);
+			nd->seq = __read_seqbegin(&nd->root.dentry->d_lock);
 		} while (read_seqretry(&fs->lock, seq));
 	}
 }
@@ -959,7 +959,7 @@ static bool __follow_mount_rcu(struct nameidata *nd, struct path *path,
 		path->mnt = mounted;
 		path->dentry = mounted->mnt_root;
 		nd->flags |= LOOKUP_JUMPED;
-		nd->seq = read_seqcount_begin(&path->dentry->d_seq);
+		nd->seq = read_seqbegin(&path->dentry->d_lock);
 		/*
 		 * Update the inode too. We don't need to re-check the
 		 * dentry sequence number here after this d_inode read,
@@ -979,7 +979,7 @@ static void follow_mount_rcu(struct nameidata *nd)
 			break;
 		nd->path.mnt = mounted;
 		nd->path.dentry = mounted->mnt_root;
-		nd->seq = read_seqcount_begin(&nd->path.dentry->d_seq);
+		nd->seq = read_seqbegin(&nd->path.dentry->d_lock);
 	}
 }
 
@@ -997,8 +997,8 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 			struct dentry *parent = old->d_parent;
 			unsigned seq;
 
-			seq = read_seqcount_begin(&parent->d_seq);
-			if (read_seqcount_retry(&old->d_seq, nd->seq))
+			seq = read_seqbegin(&parent->d_lock);
+			if (read_seqretry(&old->d_lock, nd->seq))
 				goto failed;
 			nd->path.dentry = parent;
 			nd->seq = seq;
@@ -1006,7 +1006,7 @@ static int follow_dotdot_rcu(struct nameidata *nd)
 		}
 		if (!follow_up_rcu(&nd->path))
 			break;
-		nd->seq = read_seqcount_begin(&nd->path.dentry->d_seq);
+		nd->seq = read_seqbegin(&nd->path.dentry->d_lock);
 	}
 	follow_mount_rcu(nd);
 	nd->inode = nd->path.dentry->d_inode;
@@ -1166,7 +1166,7 @@ static int do_lookup(struct nameidata *nd, struct qstr *name,
 			goto unlazy;
 
 		/* Memory barrier in read_seqcount_begin of child is enough */
-		if (__read_seqcount_retry(&parent->d_seq, nd->seq))
+		if (__read_seqretry(&parent->d_lock, nd->seq))
 			return -ECHILD;
 		nd->seq = seq;
 
@@ -1473,7 +1473,7 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 		if (flags & LOOKUP_RCU) {
 			br_read_lock(vfsmount_lock);
 			rcu_read_lock();
-			nd->seq = __read_seqcount_begin(&nd->path.dentry->d_seq);
+			nd->seq = __read_seqbegin(&nd->path.dentry->d_lock);
 		} else {
 			path_get(&nd->path);
 		}
@@ -1503,7 +1503,7 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 			do {
 				seq = read_seqbegin(&fs->lock);
 				nd->path = fs->pwd;
-				nd->seq = __read_seqcount_begin(&nd->path.dentry->d_seq);
+				nd->seq = __read_seqbegin(&nd->path.dentry->d_lock);
 			} while (read_seqretry(&fs->lock, seq));
 		} else {
 			get_fs_pwd(current->fs, &nd->path);
@@ -1532,7 +1532,7 @@ static int path_init(int dfd, const char *name, unsigned int flags,
 		if (flags & LOOKUP_RCU) {
 			if (fput_needed)
 				*fp = file;
-			nd->seq = __read_seqcount_begin(&nd->path.dentry->d_seq);
+			nd->seq = __read_seqbegin(&nd->path.dentry->d_lock);
 			br_read_lock(vfsmount_lock);
 			rcu_read_lock();
 		} else {
@@ -2591,10 +2591,10 @@ SYSCALL_DEFINE2(mkdir, const char __user *, pathname, int, mode)
 void dentry_unhash(struct dentry *dentry)
 {
 	shrink_dcache_parent(dentry);
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	if (dentry->d_count == 1)
 		__d_drop(dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 }
 
 int vfs_rmdir(struct inode *dir, struct dentry *dentry)

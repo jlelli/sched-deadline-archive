@@ -388,7 +388,7 @@ ncp_dget_fpos(struct dentry *dentry, struct dentry *parent, unsigned long fpos)
 	}
 
 	/* If a pointer is invalid, we search the dentry. */
-	spin_lock(&parent->d_lock);
+	seq_spin_lock(&parent->d_lock);
 	next = parent->d_subdirs.next;
 	while (next != &parent->d_subdirs) {
 		dent = list_entry(next, struct dentry, d_u.d_child);
@@ -397,12 +397,12 @@ ncp_dget_fpos(struct dentry *dentry, struct dentry *parent, unsigned long fpos)
 				dget(dent);
 			else
 				dent = NULL;
-			spin_unlock(&parent->d_lock);
+			seq_spin_unlock(&parent->d_lock);
 			goto out;
 		}
 		next = next->next;
 	}
-	spin_unlock(&parent->d_lock);
+	seq_spin_unlock(&parent->d_lock);
 	return NULL;
 
 out:

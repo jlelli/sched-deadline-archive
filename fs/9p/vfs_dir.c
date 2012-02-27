@@ -107,7 +107,7 @@ static int v9fs_alloc_rdir_buf(struct file *filp, int buflen)
 			err = -ENOMEM;
 			goto exit;
 		}
-		spin_lock(&filp->f_dentry->d_lock);
+		seq_spin_lock(&filp->f_dentry->d_lock);
 		if (!fid->rdir) {
 			rdir->buf = (uint8_t *)rdir + sizeof(struct p9_rdir);
 			mutex_init(&rdir->mutex);
@@ -115,7 +115,7 @@ static int v9fs_alloc_rdir_buf(struct file *filp, int buflen)
 			fid->rdir = (void *) rdir;
 			rdir = NULL;
 		}
-		spin_unlock(&filp->f_dentry->d_lock);
+		seq_spin_unlock(&filp->f_dentry->d_lock);
 		kfree(rdir);
 	}
 exit:

@@ -652,11 +652,11 @@ static int fuse_encode_fh(struct dentry *dentry, u32 *fh, int *max_len,
 	if (encode_parent) {
 		struct inode *parent;
 
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		parent = dentry->d_parent->d_inode;
 		nodeid = get_fuse_inode(parent)->nodeid;
 		generation = parent->i_generation;
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 
 		fh[3] = (u32)(nodeid >> 32);
 		fh[4] = (u32)(nodeid & 0xffffffff);

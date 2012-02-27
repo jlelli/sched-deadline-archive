@@ -171,9 +171,9 @@ static void d_free(struct dentry *dentry)
  */
 static inline void dentry_rcuwalk_barrier(struct dentry *dentry)
 {
-	assert_spin_locked(&dentry->d_lock);
+	assert_seq_spin_locked(&dentry->d_lock);
 	/* Go through a barrier */
-	write_seqcount_barrier(&dentry->d_seq);
+	write_seqlock_barrier(&dentry->d_lock);
 }
 
 /*
@@ -189,7 +189,7 @@ static void dentry_iput(struct dentry * dentry)
 	if (inode) {
 		dentry->d_inode = NULL;
 		list_del_init(&dentry->d_alias);
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		spin_unlock(&inode->i_lock);
 		if (!inode->i_nlink)
 			fsnotify_inoderemove(inode);
@@ -198,7 +198,7 @@ static void dentry_iput(struct dentry * dentry)
 		else
 			iput(inode);
 	} else {
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 	}
 }
 
@@ -214,7 +214,7 @@ static void dentry_unlink_inode(struct dentry * dentry)
 	dentry->d_inode = NULL;
 	list_del_init(&dentry->d_alias);
 	dentry_rcuwalk_barrier(dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 	spin_unlock(&inode->i_lock);
 	if (!inode->i_nlink)
 		fsnotify_inoderemove(inode);
@@ -292,7 +292,7 @@ static struct dentry *d_kill(struct dentry *dentry, struct dentry *parent)
 	 */
 	dentry->d_flags |= DCACHE_DISCONNECTED;
 	if (parent)
-		spin_unlock(&parent->d_lock);
+		seq_spin_unlock(&parent->d_lock);
 	dentry_iput(dentry);
 	/*
 	 * dentry_iput drops the locks, at which point nobody (except
@@ -338,9 +338,9 @@ EXPORT_SYMBOL(__d_drop);
 
 void d_drop(struct dentry *dentry)
 {
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	__d_drop(dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 }
 EXPORT_SYMBOL(d_drop);
 
@@ -359,7 +359,7 @@ static inline struct dentry *dentry_kill(struct dentry *dentry, int ref)
 	inode = dentry->d_inode;
 	if (inode && !spin_trylock(&inode->i_lock)) {
 relock:
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		cpu_relax();
 		return dentry; /* try again with same dentry */
 	}
@@ -367,7 +367,7 @@ relock:
 		parent = NULL;
 	else
 		parent = dentry->d_parent;
-	if (parent && !spin_trylock(&parent->d_lock)) {
+	if (parent && !seq_spin_trylock(&parent->d_lock)) {
 		if (inode)
 			spin_unlock(&inode->i_lock);
 		goto relock;
@@ -416,11 +416,11 @@ void dput(struct dentry *dentry)
 repeat:
 	if (dentry->d_count == 1)
 		might_sleep();
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	BUG_ON(!dentry->d_count);
 	if (dentry->d_count > 1) {
 		dentry->d_count--;
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		return;
 	}
 
@@ -438,7 +438,7 @@ repeat:
 	dentry_lru_add(dentry);
 
 	dentry->d_count--;
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 	return;
 
 kill_it:
@@ -465,9 +465,9 @@ int d_invalidate(struct dentry * dentry)
 	/*
 	 * If it's already been dropped, return OK.
 	 */
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	if (d_unhashed(dentry)) {
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		return 0;
 	}
 	/*
@@ -475,9 +475,9 @@ int d_invalidate(struct dentry * dentry)
 	 * to get rid of unused child entries.
 	 */
 	if (!list_empty(&dentry->d_subdirs)) {
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		shrink_dcache_parent(dentry);
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 	}
 
 	/*
@@ -492,13 +492,13 @@ int d_invalidate(struct dentry * dentry)
 	 */
 	if (dentry->d_count > 1) {
 		if (dentry->d_inode && S_ISDIR(dentry->d_inode->i_mode)) {
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			return -EBUSY;
 		}
 	}
 
 	__d_drop(dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 	return 0;
 }
 EXPORT_SYMBOL(d_invalidate);
@@ -511,9 +511,9 @@ static inline void __dget_dlock(struct dentry *dentry)
 
 static inline void __dget(struct dentry *dentry)
 {
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	__dget_dlock(dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 }
 
 struct dentry *dget_parent(struct dentry *dentry)
@@ -531,16 +531,16 @@ repeat:
 		rcu_read_unlock();
 		goto out;
 	}
-	spin_lock(&ret->d_lock);
+	seq_spin_lock(&ret->d_lock);
 	if (unlikely(ret != dentry->d_parent)) {
-		spin_unlock(&ret->d_lock);
+		seq_spin_unlock(&ret->d_lock);
 		rcu_read_unlock();
 		goto repeat;
 	}
 	rcu_read_unlock();
 	BUG_ON(!ret->d_count);
 	ret->d_count++;
-	spin_unlock(&ret->d_lock);
+	seq_spin_unlock(&ret->d_lock);
 out:
 	return ret;
 }
@@ -569,31 +569,31 @@ static struct dentry *__d_find_alias(struct inode *inode, int want_discon)
 again:
 	discon_alias = NULL;
 	list_for_each_entry(alias, &inode->i_dentry, d_alias) {
-		spin_lock(&alias->d_lock);
+		seq_spin_lock(&alias->d_lock);
  		if (S_ISDIR(inode->i_mode) || !d_unhashed(alias)) {
 			if (IS_ROOT(alias) &&
 			    (alias->d_flags & DCACHE_DISCONNECTED)) {
 				discon_alias = alias;
 			} else if (!want_discon) {
 				__dget_dlock(alias);
-				spin_unlock(&alias->d_lock);
+				seq_spin_unlock(&alias->d_lock);
 				return alias;
 			}
 		}
-		spin_unlock(&alias->d_lock);
+		seq_spin_unlock(&alias->d_lock);
 	}
 	if (discon_alias) {
 		alias = discon_alias;
-		spin_lock(&alias->d_lock);
+		seq_spin_lock(&alias->d_lock);
 		if (S_ISDIR(inode->i_mode) || !d_unhashed(alias)) {
 			if (IS_ROOT(alias) &&
 			    (alias->d_flags & DCACHE_DISCONNECTED)) {
 				__dget_dlock(alias);
-				spin_unlock(&alias->d_lock);
+				seq_spin_unlock(&alias->d_lock);
 				return alias;
 			}
 		}
-		spin_unlock(&alias->d_lock);
+		seq_spin_unlock(&alias->d_lock);
 		goto again;
 	}
 	return NULL;
@@ -622,16 +622,16 @@ void d_prune_aliases(struct inode *inode)
 restart:
 	spin_lock(&inode->i_lock);
 	list_for_each_entry(dentry, &inode->i_dentry, d_alias) {
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		if (!dentry->d_count) {
 			__dget_dlock(dentry);
 			__d_drop(dentry);
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			spin_unlock(&inode->i_lock);
 			dput(dentry);
 			goto restart;
 		}
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 	}
 	spin_unlock(&inode->i_lock);
 }
@@ -668,10 +668,10 @@ static void try_prune_one_dentry(struct dentry *dentry)
 	/* Prune ancestors. */
 	dentry = parent;
 	while (dentry) {
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		if (dentry->d_count > 1) {
 			dentry->d_count--;
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			return;
 		}
 		dentry = dentry_kill(dentry, 1);
@@ -687,9 +687,9 @@ static void shrink_dentry_list(struct list_head *list)
 		dentry = list_entry_rcu(list->prev, struct dentry, d_lru);
 		if (&dentry->d_lru == list)
 			break; /* empty */
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		if (dentry != list_entry(list->prev, struct dentry, d_lru)) {
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			continue;
 		}
 
@@ -700,7 +700,7 @@ static void shrink_dentry_list(struct list_head *list)
 		 */
 		if (dentry->d_count) {
 			dentry_lru_del(dentry);
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			continue;
 		}
 
@@ -736,7 +736,7 @@ relock:
 				struct dentry, d_lru);
 		BUG_ON(dentry->d_sb != sb);
 
-		if (!spin_trylock(&dentry->d_lock)) {
+		if (!seq_spin_trylock(&dentry->d_lock)) {
 			spin_unlock(&dcache_lru_lock);
 			cpu_relax();
 			goto relock;
@@ -751,11 +751,11 @@ relock:
 				dentry->d_flags & DCACHE_REFERENCED) {
 			dentry->d_flags &= ~DCACHE_REFERENCED;
 			list_move(&dentry->d_lru, &referenced);
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 		} else {
 			list_move_tail(&dentry->d_lru, &tmp);
 			dentry->d_flags |= DCACHE_SHRINK_LIST;
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			if (!--cnt)
 				break;
 		}
@@ -880,10 +880,10 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 	BUG_ON(!IS_ROOT(dentry));
 
 	/* detach this root from the system */
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	dentry_lru_del(dentry);
 	__d_drop(dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 
 	for (;;) {
 		/* descend to the first leaf in the current subtree */
@@ -892,16 +892,16 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 
 			/* this is a branch with children - detach all of them
 			 * from the system in one go */
-			spin_lock(&dentry->d_lock);
+			seq_spin_lock(&dentry->d_lock);
 			list_for_each_entry(loop, &dentry->d_subdirs,
 					    d_u.d_child) {
-				spin_lock_nested(&loop->d_lock,
+				seq_spin_lock_nested(&loop->d_lock,
 						DENTRY_D_LOCK_NESTED);
 				dentry_lru_del(loop);
 				__d_drop(loop);
-				spin_unlock(&loop->d_lock);
+				seq_spin_unlock(&loop->d_lock);
 			}
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 
 			/* move to the first child */
 			dentry = list_entry(dentry->d_subdirs.next,
@@ -933,10 +933,10 @@ static void shrink_dcache_for_umount_subtree(struct dentry *dentry)
 				list_del(&dentry->d_u.d_child);
 			} else {
 				parent = dentry->d_parent;
-				spin_lock(&parent->d_lock);
+				seq_spin_lock(&parent->d_lock);
 				parent->d_count--;
 				list_del(&dentry->d_u.d_child);
-				spin_unlock(&parent->d_lock);
+				seq_spin_unlock(&parent->d_lock);
 			}
 
 			detached++;
@@ -985,9 +985,9 @@ void shrink_dcache_for_umount(struct super_block *sb)
 
 	dentry = sb->s_root;
 	sb->s_root = NULL;
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	dentry->d_count--;
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 	shrink_dcache_for_umount_subtree(dentry);
 
 	while (!hlist_bl_empty(&sb->s_anon)) {
@@ -1007,8 +1007,8 @@ static struct dentry *try_to_ascend(struct dentry *old, int locked, unsigned seq
 	struct dentry *new = old->d_parent;
 
 	rcu_read_lock();
-	spin_unlock(&old->d_lock);
-	spin_lock(&new->d_lock);
+	seq_spin_unlock(&old->d_lock);
+	seq_spin_lock(&new->d_lock);
 
 	/*
 	 * might go back up the wrong parent if we have had a rename
@@ -1017,7 +1017,7 @@ static struct dentry *try_to_ascend(struct dentry *old, int locked, unsigned seq
 	if (new != old->d_parent ||
 		 (old->d_flags & DCACHE_DISCONNECTED) ||
 		 (!locked && read_seqretry(&rename_lock, seq))) {
-		spin_unlock(&new->d_lock);
+		seq_spin_unlock(&new->d_lock);
 		new = NULL;
 	}
 	rcu_read_unlock();
@@ -1051,7 +1051,7 @@ again:
 
 	if (d_mountpoint(parent))
 		goto positive;
-	spin_lock(&this_parent->d_lock);
+	seq_spin_lock(&this_parent->d_lock);
 repeat:
 	next = this_parent->d_subdirs.next;
 resume:
@@ -1060,21 +1060,21 @@ resume:
 		struct dentry *dentry = list_entry(tmp, struct dentry, d_u.d_child);
 		next = tmp->next;
 
-		spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
+		seq_spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
 		/* Have we found a mount point ? */
 		if (d_mountpoint(dentry)) {
-			spin_unlock(&dentry->d_lock);
-			spin_unlock(&this_parent->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&this_parent->d_lock);
 			goto positive;
 		}
 		if (!list_empty(&dentry->d_subdirs)) {
-			spin_unlock(&this_parent->d_lock);
-			spin_release(&dentry->d_lock.dep_map, 1, _RET_IP_);
+			seq_spin_unlock(&this_parent->d_lock);
+			spin_release(&dentry->d_lock.lock.dep_map, 1, _RET_IP_);
 			this_parent = dentry;
-			spin_acquire(&this_parent->d_lock.dep_map, 0, 1, _RET_IP_);
+			spin_acquire(&this_parent->d_lock.lock.dep_map, 0, 1, _RET_IP_);
 			goto repeat;
 		}
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 	}
 	/*
 	 * All done at this level ... ascend and resume the search.
@@ -1087,7 +1087,7 @@ resume:
 		next = child->d_u.d_child.next;
 		goto resume;
 	}
-	spin_unlock(&this_parent->d_lock);
+	seq_spin_unlock(&this_parent->d_lock);
 	if (!locked && read_seqretry(&rename_lock, seq))
 		goto rename_retry;
 	if (locked)
@@ -1132,7 +1132,7 @@ static int select_parent(struct dentry * parent)
 	seq = read_seqbegin(&rename_lock);
 again:
 	this_parent = parent;
-	spin_lock(&this_parent->d_lock);
+	seq_spin_lock(&this_parent->d_lock);
 repeat:
 	next = this_parent->d_subdirs.next;
 resume:
@@ -1141,7 +1141,7 @@ resume:
 		struct dentry *dentry = list_entry(tmp, struct dentry, d_u.d_child);
 		next = tmp->next;
 
-		spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
+		seq_spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
 
 		/* 
 		 * move only zero ref count dentries to the end 
@@ -1164,7 +1164,7 @@ resume:
 		 * the rest.
 		 */
 		if (found && need_resched()) {
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			goto out;
 		}
 
@@ -1172,14 +1172,14 @@ resume:
 		 * Descend a level if the d_subdirs list is non-empty.
 		 */
 		if (!list_empty(&dentry->d_subdirs)) {
-			spin_unlock(&this_parent->d_lock);
-			spin_release(&dentry->d_lock.dep_map, 1, _RET_IP_);
+			seq_spin_unlock(&this_parent->d_lock);
+			spin_release(&dentry->d_lock.lock.dep_map, 1, _RET_IP_);
 			this_parent = dentry;
-			spin_acquire(&this_parent->d_lock.dep_map, 0, 1, _RET_IP_);
+			spin_acquire(&this_parent->d_lock.lock.dep_map, 0, 1, _RET_IP_);
 			goto repeat;
 		}
 
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 	}
 	/*
 	 * All done at this level ... ascend and resume the search.
@@ -1193,7 +1193,7 @@ resume:
 		goto resume;
 	}
 out:
-	spin_unlock(&this_parent->d_lock);
+	seq_spin_unlock(&this_parent->d_lock);
 	if (!locked && read_seqretry(&rename_lock, seq))
 		goto rename_retry;
 	if (locked)
@@ -1294,8 +1294,7 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 
 	dentry->d_count = 1;
 	dentry->d_flags = 0;
-	spin_lock_init(&dentry->d_lock);
-	seqcount_init(&dentry->d_seq);
+	seqlock_init(&dentry->d_lock);
 	dentry->d_inode = NULL;
 	dentry->d_parent = NULL;
 	dentry->d_sb = NULL;
@@ -1308,7 +1307,7 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 	INIT_LIST_HEAD(&dentry->d_u.d_child);
 
 	if (parent) {
-		spin_lock(&parent->d_lock);
+		seq_spin_lock(&parent->d_lock);
 		/*
 		 * don't need child lock because it is not subject
 		 * to concurrency here
@@ -1318,7 +1317,7 @@ struct dentry *d_alloc(struct dentry * parent, const struct qstr *name)
 		dentry->d_sb = parent->d_sb;
 		d_set_d_op(dentry, dentry->d_sb->s_d_op);
 		list_add(&dentry->d_u.d_child, &parent->d_subdirs);
-		spin_unlock(&parent->d_lock);
+		seq_spin_unlock(&parent->d_lock);
 	}
 
 	this_cpu_inc(nr_dentry);
@@ -1375,7 +1374,7 @@ EXPORT_SYMBOL(d_set_d_op);
 
 static void __d_instantiate(struct dentry *dentry, struct inode *inode)
 {
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	if (inode) {
 		if (unlikely(IS_AUTOMOUNT(inode)))
 			dentry->d_flags |= DCACHE_NEED_AUTOMOUNT;
@@ -1383,7 +1382,7 @@ static void __d_instantiate(struct dentry *dentry, struct inode *inode)
 	}
 	dentry->d_inode = inode;
 	dentry_rcuwalk_barrier(dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 	fsnotify_d_instantiate(dentry, inode);
 }
 
@@ -1589,7 +1588,7 @@ struct dentry *d_obtain_alias(struct inode *inode)
 	}
 
 	/* attach a disconnected dentry */
-	spin_lock(&tmp->d_lock);
+	seq_spin_lock(&tmp->d_lock);
 	tmp->d_sb = inode->i_sb;
 	d_set_d_op(tmp, tmp->d_sb->s_d_op);
 	tmp->d_inode = inode;
@@ -1598,7 +1597,7 @@ struct dentry *d_obtain_alias(struct inode *inode)
 	hlist_bl_lock(&tmp->d_sb->s_anon);
 	hlist_bl_add_head(&tmp->d_hash, &tmp->d_sb->s_anon);
 	hlist_bl_unlock(&tmp->d_sb->s_anon);
-	spin_unlock(&tmp->d_lock);
+	seq_spin_unlock(&tmp->d_lock);
 	spin_unlock(&inode->i_lock);
 	security_d_instantiate(tmp, inode);
 
@@ -1810,7 +1809,7 @@ struct dentry *__d_lookup_rcu(struct dentry *parent, struct qstr *name,
 			continue;
 
 seqretry:
-		*seq = read_seqcount_begin(&dentry->d_seq);
+		*seq = read_seqbegin(&dentry->d_lock);
 		if (dentry->d_parent != parent)
 			continue;
 		if (d_unhashed(dentry))
@@ -1825,7 +1824,7 @@ seqretry:
 		 * edge of memory when walking. If we could load this
 		 * atomically some other way, we could drop this check.
 		 */
-		if (read_seqcount_retry(&dentry->d_seq, *seq))
+		if (read_seqretry(&dentry->d_lock, *seq))
 			goto seqretry;
 		if (parent->d_flags & DCACHE_OP_COMPARE) {
 			if (parent->d_op->d_compare(parent, *inode,
@@ -1928,7 +1927,7 @@ struct dentry *__d_lookup(struct dentry *parent, struct qstr *name)
 		if (dentry->d_name.hash != hash)
 			continue;
 
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		if (dentry->d_parent != parent)
 			goto next;
 		if (d_unhashed(dentry))
@@ -1952,10 +1951,10 @@ struct dentry *__d_lookup(struct dentry *parent, struct qstr *name)
 
 		dentry->d_count++;
 		found = dentry;
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		break;
 next:
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
  	}
  	rcu_read_unlock();
 
@@ -2003,17 +2002,17 @@ int d_validate(struct dentry *dentry, struct dentry *dparent)
 {
 	struct dentry *child;
 
-	spin_lock(&dparent->d_lock);
+	seq_spin_lock(&dparent->d_lock);
 	list_for_each_entry(child, &dparent->d_subdirs, d_u.d_child) {
 		if (dentry == child) {
-			spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
+			seq_spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
 			__dget_dlock(dentry);
-			spin_unlock(&dentry->d_lock);
-			spin_unlock(&dparent->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dparent->d_lock);
 			return 1;
 		}
 	}
-	spin_unlock(&dparent->d_lock);
+	seq_spin_unlock(&dparent->d_lock);
 
 	return 0;
 }
@@ -2048,12 +2047,12 @@ void d_delete(struct dentry * dentry)
 	 * Are we the only user?
 	 */
 again:
-	spin_lock(&dentry->d_lock);
+	seq_spin_lock(&dentry->d_lock);
 	inode = dentry->d_inode;
 	isdir = S_ISDIR(inode->i_mode);
 	if (dentry->d_count == 1) {
 		if (inode && !spin_trylock(&inode->i_lock)) {
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			cpu_relax();
 			goto again;
 		}
@@ -2066,7 +2065,7 @@ again:
 	if (!d_unhashed(dentry))
 		__d_drop(dentry);
 
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 
 	fsnotify_nameremove(dentry, isdir);
 }
@@ -2095,9 +2094,9 @@ static void _d_rehash(struct dentry * entry)
  
 void d_rehash(struct dentry * entry)
 {
-	spin_lock(&entry->d_lock);
+	seq_spin_lock(&entry->d_lock);
 	_d_rehash(entry);
-	spin_unlock(&entry->d_lock);
+	seq_spin_unlock(&entry->d_lock);
 }
 EXPORT_SYMBOL(d_rehash);
 
@@ -2120,11 +2119,9 @@ void dentry_update_name_case(struct dentry *dentry, struct qstr *name)
 	BUG_ON(!mutex_is_locked(&dentry->d_parent->d_inode->i_mutex));
 	BUG_ON(dentry->d_name.len != name->len); /* d_lookup gives this */
 
-	spin_lock(&dentry->d_lock);
-	write_seqcount_begin(&dentry->d_seq);
+	write_seqlock(&dentry->d_lock);
 	memcpy((unsigned char *)dentry->d_name.name, name->name, name->len);
-	write_seqcount_end(&dentry->d_seq);
-	spin_unlock(&dentry->d_lock);
+	write_sequnlock(&dentry->d_lock);
 }
 EXPORT_SYMBOL(dentry_update_name_case);
 
@@ -2175,24 +2172,24 @@ static void dentry_lock_for_move(struct dentry *dentry, struct dentry *target)
 	 * XXXX: do we really need to take target->d_lock?
 	 */
 	if (IS_ROOT(dentry) || dentry->d_parent == target->d_parent)
-		spin_lock(&target->d_parent->d_lock);
+		seq_spin_lock(&target->d_parent->d_lock);
 	else {
 		if (d_ancestor(dentry->d_parent, target->d_parent)) {
-			spin_lock(&dentry->d_parent->d_lock);
-			spin_lock_nested(&target->d_parent->d_lock,
-						DENTRY_D_LOCK_NESTED);
+			seq_spin_lock(&dentry->d_parent->d_lock);
+			seq_spin_lock_nested(&target->d_parent->d_lock,
+					    DENTRY_D_LOCK_NESTED);
 		} else {
-			spin_lock(&target->d_parent->d_lock);
-			spin_lock_nested(&dentry->d_parent->d_lock,
-						DENTRY_D_LOCK_NESTED);
+			seq_spin_lock(&target->d_parent->d_lock);
+			seq_spin_lock_nested(&dentry->d_parent->d_lock,
+					    DENTRY_D_LOCK_NESTED);
 		}
 	}
 	if (target < dentry) {
-		spin_lock_nested(&target->d_lock, 2);
-		spin_lock_nested(&dentry->d_lock, 3);
+		seq_spin_lock_nested(&target->d_lock, 2);
+		seq_spin_lock_nested(&dentry->d_lock, 3);
 	} else {
-		spin_lock_nested(&dentry->d_lock, 2);
-		spin_lock_nested(&target->d_lock, 3);
+		seq_spin_lock_nested(&dentry->d_lock, 2);
+		seq_spin_lock_nested(&target->d_lock, 3);
 	}
 }
 
@@ -2200,9 +2197,9 @@ static void dentry_unlock_parents_for_move(struct dentry *dentry,
 					struct dentry *target)
 {
 	if (target->d_parent != dentry->d_parent)
-		spin_unlock(&dentry->d_parent->d_lock);
+		seq_spin_unlock(&dentry->d_parent->d_lock);
 	if (target->d_parent != target)
-		spin_unlock(&target->d_parent->d_lock);
+		seq_spin_unlock(&target->d_parent->d_lock);
 }
 
 /*
@@ -2235,8 +2232,8 @@ static void __d_move(struct dentry * dentry, struct dentry * target)
 
 	dentry_lock_for_move(dentry, target);
 
-	write_seqcount_begin(&dentry->d_seq);
-	write_seqcount_begin(&target->d_seq);
+	write_seqlock_begin(&dentry->d_lock);
+	write_seqlock_begin(&target->d_lock);
 
 	/* __d_drop does write_seqcount_barrier, but they're OK to nest. */
 
@@ -2271,13 +2268,13 @@ static void __d_move(struct dentry * dentry, struct dentry * target)
 
 	list_add(&dentry->d_u.d_child, &dentry->d_parent->d_subdirs);
 
-	write_seqcount_end(&target->d_seq);
-	write_seqcount_end(&dentry->d_seq);
+	write_seqlock_end(&target->d_lock);
+	write_seqlock_end(&dentry->d_lock);
 
 	dentry_unlock_parents_for_move(dentry, target);
-	spin_unlock(&target->d_lock);
+	seq_spin_unlock(&target->d_lock);
 	fsnotify_d_move(dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 }
 
 /*
@@ -2365,8 +2362,8 @@ static void __d_materialise_dentry(struct dentry *dentry, struct dentry *anon)
 
 	dentry_lock_for_move(anon, dentry);
 
-	write_seqcount_begin(&dentry->d_seq);
-	write_seqcount_begin(&anon->d_seq);
+	write_seqlock_begin(&dentry->d_lock);
+	write_seqlock_begin(&anon->d_lock);
 
 	dparent = dentry->d_parent;
 	aparent = anon->d_parent;
@@ -2388,11 +2385,11 @@ static void __d_materialise_dentry(struct dentry *dentry, struct dentry *anon)
 	else
 		INIT_LIST_HEAD(&anon->d_u.d_child);
 
-	write_seqcount_end(&dentry->d_seq);
-	write_seqcount_end(&anon->d_seq);
+	write_seqlock_end(&dentry->d_lock);
+	write_seqlock_end(&anon->d_lock);
 
 	dentry_unlock_parents_for_move(anon, dentry);
-	spin_unlock(&dentry->d_lock);
+	seq_spin_unlock(&dentry->d_lock);
 
 	/* anon->d_lock still locked, returns locked */
 	anon->d_flags &= ~DCACHE_DISCONNECTED;
@@ -2459,10 +2456,10 @@ struct dentry *d_materialise_unique(struct dentry *dentry, struct inode *inode)
 	else
 		BUG_ON(!d_unhashed(actual));
 
-	spin_lock(&actual->d_lock);
+	seq_spin_lock(&actual->d_lock);
 found:
 	_d_rehash(actual);
-	spin_unlock(&actual->d_lock);
+	seq_spin_unlock(&actual->d_lock);
 	spin_unlock(&inode->i_lock);
 out_nolock:
 	if (actual == dentry) {
@@ -2523,9 +2520,9 @@ static int prepend_path(const struct path *path,
 		}
 		parent = dentry->d_parent;
 		prefetch(parent);
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		error = prepend_name(buffer, buflen, &dentry->d_name);
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		if (!error)
 			error = prepend(buffer, buflen, "/", 1);
 		if (error)
@@ -2750,9 +2747,9 @@ static char *__dentry_path(struct dentry *dentry, char *buf, int buflen)
 		int error;
 
 		prefetch(parent);
-		spin_lock(&dentry->d_lock);
+		seq_spin_lock(&dentry->d_lock);
 		error = prepend_name(&end, &buflen, &dentry->d_name);
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 		if (error != 0 || prepend(&end, &buflen, "/", 1) != 0)
 			goto Elong;
 
@@ -2942,7 +2939,7 @@ void d_genocide(struct dentry *root)
 	seq = read_seqbegin(&rename_lock);
 again:
 	this_parent = root;
-	spin_lock(&this_parent->d_lock);
+	seq_spin_lock(&this_parent->d_lock);
 repeat:
 	next = this_parent->d_subdirs.next;
 resume:
@@ -2951,23 +2948,23 @@ resume:
 		struct dentry *dentry = list_entry(tmp, struct dentry, d_u.d_child);
 		next = tmp->next;
 
-		spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
+		seq_spin_lock_nested(&dentry->d_lock, DENTRY_D_LOCK_NESTED);
 		if (d_unhashed(dentry) || !dentry->d_inode) {
-			spin_unlock(&dentry->d_lock);
+			seq_spin_unlock(&dentry->d_lock);
 			continue;
 		}
 		if (!list_empty(&dentry->d_subdirs)) {
-			spin_unlock(&this_parent->d_lock);
-			spin_release(&dentry->d_lock.dep_map, 1, _RET_IP_);
+			seq_spin_unlock(&this_parent->d_lock);
+			spin_release(&dentry->d_lock.lock.dep_map, 1, _RET_IP_);
 			this_parent = dentry;
-			spin_acquire(&this_parent->d_lock.dep_map, 0, 1, _RET_IP_);
+			spin_acquire(&this_parent->d_lock.lock.dep_map, 0, 1, _RET_IP_);
 			goto repeat;
 		}
 		if (!(dentry->d_flags & DCACHE_GENOCIDE)) {
 			dentry->d_flags |= DCACHE_GENOCIDE;
 			dentry->d_count--;
 		}
-		spin_unlock(&dentry->d_lock);
+		seq_spin_unlock(&dentry->d_lock);
 	}
 	if (this_parent != root) {
 		struct dentry *child = this_parent;
@@ -2981,7 +2978,7 @@ resume:
 		next = child->d_u.d_child.next;
 		goto resume;
 	}
-	spin_unlock(&this_parent->d_lock);
+	seq_spin_unlock(&this_parent->d_lock);
 	if (!locked && read_seqretry(&rename_lock, seq))
 		goto rename_retry;
 	if (locked)
