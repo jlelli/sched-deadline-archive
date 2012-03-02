@@ -58,7 +58,7 @@ CONTENTS
 3. Bandwidth management
 =======================
 
- In order of -deaadline scheduling to be effective and useful, it is important
+ In order of -deadline scheduling to be effective and useful, it is important
  that some method of having the allocation of the available CPU bandwidth to
  the tasks under control.
  This is usually called "admission control" and if it is not performed at all,
@@ -74,9 +74,9 @@ CONTENTS
  similar names, equivalent meaning and with the same usage paradigm are added.
 
  However, more discussion is needed in order to figure out how we want to manage
- SCHED_DEADLINE bandwidth at the task group level. Therefore, SCHED_DEADLINE uses
- (for now) a less sophisticated, but actually very sensible, machanism to ensure
- that a certain utilization cap is not overcome per each root_domain.
+ SCHED_DEADLINE bandwidth at the task group level. Therefore, SCHED_DEADLINE
+ uses (for now) a less sophisticated, but actually very sensible, mechanism to
+ ensure that a certain utilization cap is not overcome per each root_domain.
 
  Another main difference between deadline bandwidth management and RT-throttling
  is that -deadline tasks have bandwidth on their own (while -rt ones doesn't!),
@@ -109,17 +109,17 @@ The system wide settings are configured under the /proc virtual file system:
 ------------------
 
  Specifying a periodic/sporadic task that executes for a given amount of
- runtime at each instance, and that is scheduled according to the usrgency of
+ runtime at each instance, and that is scheduled according to the urgency of
  their own timing constraints needs, in general, a way of declaring:
   - a (maximum/typical) instance execution time,
   - a minimum interval between consecutive instances,
   - a time constraint by which each instance must be completed.
 
  Therefore:
-  * a new struct sched_param_ex, containing all the necessary fields is
+  * a new struct sched_param2, containing all the necessary fields is
     provided;
   * the new scheduling related syscalls that manipulate it, i.e.,
-    sched_setscheduler_ex(), sched_setparam_ex() and sched_getparam_ex()
+    sched_setscheduler2(), sched_setparam2() and sched_getparam2()
     are implemented.
 
 
@@ -132,7 +132,7 @@ tasks can use at most 5%, multiplied by the number of CPUs that compose the
 root_domain, for each root_domain.
 
 When a -deadline task fork a child, its dl_runtime is set to 0, which means
-someone must call sched_setscheduler_ex() on it, or it won't even start.
+someone must call sched_setscheduler2() on it, or it won't even start.
 
 
 3. Future plans
