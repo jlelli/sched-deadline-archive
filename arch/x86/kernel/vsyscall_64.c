@@ -222,11 +222,6 @@ vgetcpu(unsigned *cpu, unsigned *node, struct getcpu_cache *tcache)
 	return 0;
 }
 
-static long __vsyscall(3) venosys_1(void)
-{
-	return -ENOSYS;
-}
-
 #ifdef CONFIG_SYSCTL
 static ctl_table kernel_table2[] = {
 	{ .procname = "vsyscall64",
