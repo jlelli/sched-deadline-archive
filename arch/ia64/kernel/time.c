@@ -36,7 +36,7 @@
 static cycle_t itc_get_cycles(struct clocksource *cs);
 
 struct fsyscall_gtod_data_t fsyscall_gtod_data = {
-	.lock = __RAW_SEQLOCK_UNLOCKED(fsyscall_gtod_data.lock),
+	.lock = __SEQLOCK_UNLOCKED(fsyscall_gtod_data.lock),
 };
 
 struct itc_jitter_data_t itc_jitter_data;
@@ -462,7 +462,7 @@ void update_vsyscall(struct timespec *wall, struct timespec *wtm,
 {
         unsigned long flags;
 
-	raw_write_seqlock_irqsave(&fsyscall_gtod_data.lock, flags);
+        write_seqlock_irqsave(&fsyscall_gtod_data.lock, flags);
 
         /* copy fsyscall clock data */
         fsyscall_gtod_data.clk_mask = c->mask;
@@ -485,6 +485,6 @@ void update_vsyscall(struct timespec *wall, struct timespec *wtm,
 		fsyscall_gtod_data.monotonic_time.tv_sec++;
 	}
 
-	raw_write_sequnlock_irqrestore(&fsyscall_gtod_data.lock, flags);
+        write_sequnlock_irqrestore(&fsyscall_gtod_data.lock, flags);
 }
 

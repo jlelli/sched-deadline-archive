@@ -52,7 +52,7 @@
 DEFINE_VVAR(int, vgetcpu_mode);
 DEFINE_VVAR(struct vsyscall_gtod_data, vsyscall_gtod_data) =
 {
-	.lock = __RAW_SEQLOCK_UNLOCKED(__vsyscall_gtod_data.lock),
+	.lock = __SEQLOCK_UNLOCKED(__vsyscall_gtod_data.lock),
 	.sysctl_enabled = 1,
 };
 
@@ -60,10 +60,10 @@ void update_vsyscall_tz(void)
 {
 	unsigned long flags;
 
-	raw_write_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
+	write_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
 	/* sys_tz has changed */
 	vsyscall_gtod_data.sys_tz = sys_tz;
-	raw_write_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
+	write_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
 }
 
 void update_vsyscall(struct timespec *wall_time, struct timespec *wtm,
@@ -71,7 +71,7 @@ void update_vsyscall(struct timespec *wall_time, struct timespec *wtm,
 {
 	unsigned long flags;
 
-	raw_write_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
+	write_seqlock_irqsave(&vsyscall_gtod_data.lock, flags);
 	/* copy vsyscall data */
 	vsyscall_gtod_data.clock.vread = clock->vread;
 	vsyscall_gtod_data.clock.cycle_last = clock->cycle_last;
@@ -82,7 +82,7 @@ void update_vsyscall(struct timespec *wall_time, struct timespec *wtm,
 	vsyscall_gtod_data.wall_time_nsec = wall_time->tv_nsec;
 	vsyscall_gtod_data.wall_to_monotonic = *wtm;
 	vsyscall_gtod_data.wall_time_coarse = __current_kernel_time();
-	raw_write_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
+	write_sequnlock_irqrestore(&vsyscall_gtod_data.lock, flags);
 }
 
 /* RED-PEN may want to readd seq locking, but then the variable should be
