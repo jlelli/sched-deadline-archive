@@ -170,7 +170,7 @@ again:
 			parent = p->d_parent;
 			if (!seq_spin_trylock(&parent->d_lock)) {
 				seq_spin_unlock(&p->d_lock);
-				cpu_relax();
+				cpu_chill();
 				goto relock;
 			}
 			seq_spin_unlock(&p->d_lock);
