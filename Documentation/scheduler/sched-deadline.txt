@@ -7,9 +7,9 @@ CONTENTS
 0. WARNING
 1. Overview
 2. Task scheduling
-2. The interface
+2. The Interface
 3. Bandwidth management
-  3.1 System wide settings
+  3.1 System-wide settings
   2.2 Task interface
   2.4 Default behavior
 3. Future plans
@@ -19,8 +19,8 @@ CONTENTS
 ==========
 
  Fiddling with these settings can result in an unpredictable or even unstable
- system behavior. As for -rt (group) scheduling, it is assumed that root
- knows what he is doing.
+ system behavior. As for -rt (group) scheduling, it is assumed that root users
+ know what they're doing.
 
 
 1. Overview
@@ -29,7 +29,7 @@ CONTENTS
  The SCHED_DEADLINE policy contained inside the sched_dl scheduling class is
  basically an implementation of the Earliest Deadline First (EDF) scheduling
  algorithm, augmented with a mechanism (called Constant Bandwidth Server, CBS)
- that make it possible to isolate the behaviour of tasks between each other.
+ that makes it possible to isolate the behavior of tasks between each other.
 
 
 2. Task scheduling
@@ -38,34 +38,34 @@ CONTENTS
  The typical -deadline task will be made up of a computation phase (instance)
  which is activated on a periodic or sporadic fashion. The expected (maximum)
  duration of such computation is called the task's runtime; the time interval
- by which each instance need to be completed is called the task's relative
+ by which each instance needs to be completed is called the task's relative
  deadline. The task's absolute deadline is dynamically calculated as the
  time instant a task (better, an instance) activates plus the relative
  deadline.
 
- The EDF algorithms selects the task with the smallest absolute deadline as
- the one to be executed first, while the CBS ensures each task to run for
- at most the its runtime every (relative) deadline length time interval,
- avoiding any interference between different tasks (bandwidth isolation).
+ The EDF algorithm selects the task with the smallest absolute deadline as
+ the one to be executed first, while the CBS ensures that each task runs for
+ at most its runtime every period, avoiding any interference between different
+ tasks (bandwidth isolation).
  Thanks to this feature, also tasks that do not strictly comply with the
- computational model sketched above can effectively use the new policy.
+ computational model described above can effectively use the new policy.
  IOW, there are no limitations on what kind of task can exploit this new
  scheduling discipline, even if it must be said that it is particularly
  suited for periodic or sporadic tasks that need guarantees on their
- timing behaviour, e.g., multimedia, streaming, control applications, etc.
+ timing behavior, e.g., multimedia, streaming, control applications, etc.
 
 
 3. Bandwidth management
 =======================
 
- In order of -deadline scheduling to be effective and useful, it is important
- that some method of having the allocation of the available CPU bandwidth to
- the tasks under control.
+ In order for the -deadline scheduling to be effective and useful, it is
+ important to have some method to keep the allocation of the available CPU
+ bandwidth to the tasks under control.
  This is usually called "admission control" and if it is not performed at all,
  no guarantee can be given on the actual scheduling of the -deadline tasks.
 
- Since when RT-throttling has been introduced each task group have a bandwidth
- associated to itself, calculated as a certain amount of runtime over a period.
+ Since when RT-throttling has been introduced each task group has a bandwidth
+ associated, calculated as a certain amount of runtime over a period.
  Moreover, to make it possible to manipulate such bandwidth, readable/writable
  controls have been added to both procfs (for system wide settings) and cgroupfs
  (for per-group settings).
@@ -79,7 +79,7 @@ CONTENTS
  ensure that a certain utilization cap is not overcome per each root_domain.
 
  Another main difference between deadline bandwidth management and RT-throttling
- is that -deadline tasks have bandwidth on their own (while -rt ones doesn't!),
+ is that -deadline tasks have bandwidth on their own (while -rt ones don't!),
  and thus we don't need an higher level throttling mechanism to enforce the
  desired bandwidth.
 
@@ -92,7 +92,7 @@ The system wide settings are configured under the /proc virtual file system:
   * /proc/sys/kernel/sched_dl_runtime_us,
   * /proc/sys/kernel/sched_dl_period_us,
 
- They accepts (if written) and provides (if read) the new runtime and period,
+ They accept (if written) and provides (if read) the new runtime and period,
  respectively, for each CPU in each root_domain.
 
  This means that, for a root_domain comprising M CPUs, -deadline tasks
@@ -110,7 +110,7 @@ The system wide settings are configured under the /proc virtual file system:
 
  Specifying a periodic/sporadic task that executes for a given amount of
  runtime at each instance, and that is scheduled according to the urgency of
- their own timing constraints needs, in general, a way of declaring:
+ its own timing constraints needs, in general, a way of declaring:
   - a (maximum/typical) instance execution time,
   - a minimum interval between consecutive instances,
   - a time constraint by which each instance must be completed.
@@ -138,9 +138,9 @@ someone must call sched_setscheduler2() on it, or it won't even start.
 3. Future plans
 ===============
 
-Still Missing parts:
+Still Missing:
 
- - refinements in deadline inheritance, especially regarding the possibility
+ - refinements to deadline inheritance, especially regarding the possibility
    of retaining bandwidth isolation among non-interacting tasks. This is
    being studied from both theoretical and practical point of views, and
    hopefully we can have some demonstrative code soon.
