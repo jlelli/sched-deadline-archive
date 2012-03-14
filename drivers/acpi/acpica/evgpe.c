@@ -357,7 +357,7 @@ u32 acpi_ev_gpe_detect(struct acpi_gpe_xrupt_info * gpe_xrupt_list)
 	 * Note: Not necessary to obtain the hardware lock, since the GPE
 	 * registers are owned by the gpe_lock.
 	 */
-	raw_spin_lock_irqsave(&acpi_gbl_gpe_lock, flags);
+	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
 
 	/* Examine all GPE blocks attached to this interrupt level */
 
@@ -440,7 +440,7 @@ u32 acpi_ev_gpe_detect(struct acpi_gpe_xrupt_info * gpe_xrupt_list)
 
       unlock_and_exit:
 
-	raw_spin_unlock_irqrestore(&acpi_gbl_gpe_lock, flags);
+	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
 	return (int_status);
 }
 

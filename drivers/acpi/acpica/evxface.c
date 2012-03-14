@@ -750,7 +750,7 @@ acpi_install_gpe_handler(acpi_handle gpe_device,
 		goto unlock_and_exit;
 	}
 
-	raw_spin_lock_irqsave(&acpi_gbl_gpe_lock, flags);
+	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
 
 	/* Ensure that we have a valid GPE number */
 
@@ -798,14 +798,14 @@ acpi_install_gpe_handler(acpi_handle gpe_device,
 	    ~(ACPI_GPE_XRUPT_TYPE_MASK | ACPI_GPE_DISPATCH_MASK);
 	gpe_event_info->flags |= (u8) (type | ACPI_GPE_DISPATCH_HANDLER);
 
-	raw_spin_unlock_irqrestore(&acpi_gbl_gpe_lock, flags);
+	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
 
 unlock_and_exit:
 	(void)acpi_ut_release_mutex(ACPI_MTX_EVENTS);
 	return_ACPI_STATUS(status);
 
 free_and_exit:
-	raw_spin_unlock_irqrestore(&acpi_gbl_gpe_lock, flags);
+	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
 	ACPI_FREE(handler);
 	goto unlock_and_exit;
 }
@@ -852,7 +852,7 @@ acpi_remove_gpe_handler(acpi_handle gpe_device,
 		return_ACPI_STATUS(status);
 	}
 
-	raw_spin_lock_irqsave(&acpi_gbl_gpe_lock, flags);
+	flags = acpi_os_acquire_lock(acpi_gbl_gpe_lock);
 
 	/* Ensure that we have a valid GPE number */
 
@@ -903,7 +903,7 @@ acpi_remove_gpe_handler(acpi_handle gpe_device,
 	ACPI_FREE(handler);
 
 unlock_and_exit:
-	raw_spin_unlock_irqrestore(&acpi_gbl_gpe_lock, flags);
+	acpi_os_release_lock(acpi_gbl_gpe_lock, flags);
 
 	(void)acpi_ut_release_mutex(ACPI_MTX_EVENTS);
 	return_ACPI_STATUS(status);

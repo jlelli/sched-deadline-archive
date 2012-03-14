@@ -52,9 +52,6 @@ static acpi_status acpi_ut_create_mutex(acpi_mutex_handle mutex_id);
 
 static void acpi_ut_delete_mutex(acpi_mutex_handle mutex_id);
 
-DEFINE_RAW_SPINLOCK(acpi_gbl_gpe_lock);
-DEFINE_RAW_SPINLOCK(acpi_gbl_hardware_lock);
-
 /*******************************************************************************
  *
  * FUNCTION:    acpi_ut_mutex_initialize
@@ -82,6 +79,18 @@ acpi_status acpi_ut_mutex_initialize(void)
 		if (ACPI_FAILURE(status)) {
 			return_ACPI_STATUS(status);
 		}
+	}
+
+	/* Create the spinlocks for use at interrupt level */
+
+	status = acpi_os_create_lock (&acpi_gbl_gpe_lock);
+	if (ACPI_FAILURE (status)) {
+		return_ACPI_STATUS (status);
+	}
+
+	status = acpi_os_create_lock (&acpi_gbl_hardware_lock);
+	if (ACPI_FAILURE (status)) {
+		return_ACPI_STATUS (status);
 	}
 
 	/* Mutex for _OSI support */
@@ -123,7 +132,13 @@ void acpi_ut_mutex_terminate(void)
 
 	acpi_os_delete_mutex(acpi_gbl_osi_mutex);
 
+	/* Delete the spinlocks */
+
+	acpi_os_delete_lock(acpi_gbl_gpe_lock);
+	acpi_os_delete_lock(acpi_gbl_hardware_lock);
+
 	/* Delete the reader/writer lock */
+
 	acpi_ut_delete_rw_lock(&acpi_gbl_namespace_rw_lock);
 	return_VOID;
 }
