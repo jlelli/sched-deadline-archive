@@ -12,6 +12,7 @@
  */
 
 #include <linux/gfp.h>
+#include <linux/kernel.h>
 #include "sched_cpudl.h"
 
 static inline int parent(int i)
@@ -36,38 +37,35 @@ static inline int dl_time_before(u64 a, u64 b)
 
 void cpudl_exchange(struct cpudl *cp, int a, int b)
 {
-	int cpu_tmp;
-	u64 dl_a = cp->elements[a].dl, dl_b = cp->elements[b].dl;
 	int cpu_a = cp->elements[a].cpu, cpu_b = cp->elements[b].cpu;
 
-	cp->elements[b].dl = dl_a;
-	cp->elements[b].cpu = cpu_a;
-	cp->elements[a].dl = dl_b;
-	cp->elements[a].cpu = cpu_b;
-
-	cpu_tmp = cp->cpu_to_idx[cpu_b];
-        cp->cpu_to_idx[cpu_b] = cp->cpu_to_idx[cpu_a];
-        cp->cpu_to_idx[cpu_a] = cpu_tmp;
+	swap(cp->elements[a], cp->elements[b]);
+	swap(cp->cpu_to_idx[cpu_a], cp->cpu_to_idx[cpu_b]);
 }
 
 void cpudl_heapify(struct cpudl *cp, int idx)
 {
         int l, r, largest;
 
-        l = left_child(idx);
-        r = right_child(idx);
-	if ((l < cp->size) && dl_time_before(cp->elements[idx].dl,
-				cp->elements[l].dl))
-                largest = l;
-        else
-                largest = idx;
-	if ((r < cp->size) && dl_time_before(cp->elements[largest].dl,
-				cp->elements[r].dl))
-                largest = r;
-        if (largest != idx) {
-                cpudl_exchange(cp, largest, idx);
-                cpudl_heapify(cp, largest);
-        }
+	/* adapted from lib/prio_heap.c */
+	while(1) {
+		l = left_child(idx);
+		r = right_child(idx);
+		largest = idx;
+
+		if ((l < cp->size) && dl_time_before(cp->elements[idx].dl,
+							cp->elements[l].dl))
+			largest = l;
+		if ((r < cp->size) && dl_time_before(cp->elements[largest].dl,
+							cp->elements[r].dl))
+			largest = r;
+		if (largest == idx)
+			break;
+
+		/* Push p down the heap one level and bump one up */
+		cpudl_exchange(cp, largest, idx);
+		idx = largest;
+	}
 }
 
 void cpudl_change_key(struct cpudl *cp, int idx, u64 new_dl)
