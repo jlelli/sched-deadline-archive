@@ -2220,11 +2220,6 @@ static netdev_tx_t atl1c_xmit_frame(struct sk_buff *skb,
 	tpd_req = atl1c_cal_tpd_req(skb);
 	spin_lock_irqsave(&adapter->tx_lock, flags);
 
-	if (skb->mark == 0x01)
-		type = atl1c_trans_high;
-	else
-		type = atl1c_trans_normal;
-
 	if (atl1c_tpd_avail(adapter, type) < tpd_req) {
 		/* no enough descriptor, just stop queue */
 		netif_stop_queue(netdev);
