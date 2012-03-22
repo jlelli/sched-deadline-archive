@@ -11,7 +11,7 @@
  *
  * Copyright (C) 2010 Dario Faggioli <raistlin@linux.it>,
  *                    Juri Lelli <juri.lelli@gmail.com>,
- *                    Michael Trimarchi <trimarchimichael@yahoo.it>,
+ *                    Michael Trimarchi <michael@amarulasolutions.com>,
  *                    Fabio Checconi <fabio@gandalf.sssup.it>
  */
 static const struct sched_class dl_sched_class;
