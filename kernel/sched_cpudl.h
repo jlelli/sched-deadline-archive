@@ -9,13 +9,12 @@ struct array_item {
         u64 dl;
         int cpu;
 };
-typedef struct array_item item;
 
 struct cpudl {
 	raw_spinlock_t lock;
-        int size;
+	int size;
 	int cpu_to_idx[NR_CPUS];
-        item elements[NR_CPUS];
+	struct array_item elements[NR_CPUS];
 	cpumask_var_t free_cpus;
 };
 

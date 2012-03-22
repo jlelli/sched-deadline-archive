@@ -1,7 +1,7 @@
 /*
  *  kernel/sched_cpudl.c
  *
- *  Global CPU deadlines management
+ *  Global CPU deadline management
  *
  *  Author: Juri Lelli <j.lelli@sssup.it>
  *
