@@ -45,7 +45,10 @@
 					   0-39 for nice level 19 .. -20 */
 #define RLIMIT_RTPRIO		14	/* maximum realtime priority */
 #define RLIMIT_RTTIME		15	/* timeout for RT tasks in us */
-#define RLIM_NLIMITS		16
+
+#define RLIMIT_DLDLINE		16	/* minimum deadline in us */
+#define RLIMIT_DLRTIME		17	/* maximum runtime in us */
+#define RLIM_NLIMITS		18
 
 /*
  * SuS says limits have to be unsigned.
