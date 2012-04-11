@@ -489,6 +489,25 @@ int dl_runtime_exceeded(struct rq *rq, struct sched_dl_entity *dl_se)
 		return 0;
 
 	/*
+	 * Record statistics about last and maximum deadline
+	 * misses and runtime overruns.
+	 */
+	if (dmiss) {
+		u64 damount = rq->clock - dl_se->deadline;
+
+		schedstat_set(dl_se->stats.last_dmiss, damount);
+		schedstat_set(dl_se->stats.dmiss_max,
+			      max(dl_se->stats.dmiss_max, damount));
+	}
+	if (rorun) {
+		u64 ramount = -dl_se->runtime;
+
+		schedstat_set(dl_se->stats.last_rorun, ramount);
+		schedstat_set(dl_se->stats.rorun_max,
+			      max(dl_se->stats.rorun_max, ramount));
+	}
+
+	/*
 	 * If we are beyond our current deadline and we are still
 	 * executing, then we have already used some of the runtime of
 	 * the next instance. Thus, if we do not account that, we are
@@ -523,6 +542,7 @@ static void update_curr_dl(struct rq *rq)
 		      max(curr->se.statistics.exec_max, delta_exec));
 
 	curr->se.sum_exec_runtime += delta_exec;
+	schedstat_add(&rq->dl, exec_clock, delta_exec);
 	account_group_exec_runtime(curr, delta_exec);
 
 	curr->se.exec_start = rq->clock;
@@ -869,6 +889,18 @@ static void start_hrtick_dl(struct rq *rq, struct task_struct *p)
 {
 }
 #endif
+
+#ifdef CONFIG_SCHED_DEBUG
+struct sched_dl_entity *__pick_dl_last_entity(struct dl_rq *dl_rq)
+{
+	struct rb_node *last = rb_last(&dl_rq->rb_root);
+
+	if (!last)
+		return NULL;
+
+	return rb_entry(last, struct sched_dl_entity, rb_node);
+}
+#endif /* CONFIG_SCHED_DEBUG */
 
 static struct sched_dl_entity *pick_next_dl_entity(struct rq *rq,
 						   struct dl_rq *dl_rq)
@@ -1542,3 +1574,16 @@ const struct sched_class dl_sched_class = {
 	.switched_from		= switched_from_dl,
 	.switched_to		= switched_to_dl,
 };
+
+#ifdef CONFIG_SCHED_DEBUG
+extern void print_dl_rq(struct seq_file *m, int cpu, struct dl_rq *dl_rq);
+
+void print_dl_stats(struct seq_file *m, int cpu)
+{
+	struct dl_rq *dl_rq = &cpu_rq(cpu)->dl;
+
+	rcu_read_lock();
+	print_dl_rq(m, cpu, dl_rq);
+	rcu_read_unlock();
+}
+#endif /* CONFIG_SCHED_DEBUG */
