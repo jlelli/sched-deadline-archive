@@ -1,1 +1,3 @@
 # MIPS headers
+
+generic-y += math128.h

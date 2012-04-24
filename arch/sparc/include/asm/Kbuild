@@ -9,3 +9,4 @@ generic-y += irq_regs.h
 generic-y += local.h
 generic-y += module.h
 generic-y += word-at-a-time.h
+generic-y += math128.h

@@ -1,0 +1,4 @@
+#ifndef _ASM_GENERIC_MATH128_H
+#define _ASM_GENERIC_MATH128_H
+
+#endif /*_ASM_GENERIC_MATH128_H */

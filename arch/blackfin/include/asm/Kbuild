@@ -47,3 +47,4 @@ generic-y += xor.h
 header-y += bfin_sport.h
 header-y += cachectl.h
 header-y += fixed_code.h
+generic-y += math128.h
