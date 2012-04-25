@@ -430,9 +430,6 @@ probe_wakeup(void *ignore, struct task_struct *p, int success)
 	tracing_record_cmdline(p);
 	tracing_record_cmdline(current);
 
-	if ((wakeup_rt && !rt_task(p)) ||
-			p->prio >= wakeup_prio ||
-			p->prio >= current->prio)
 	/*
 	 * Semantic is like this:
 	 *  - wakeup tracer handles all tasks in the system, independently
