@@ -1420,7 +1420,8 @@ static void task_woken_dl(struct rq *rq, struct task_struct *p)
 static void set_cpus_allowed_dl(struct task_struct *p,
 				const struct cpumask *new_mask)
 {
-	int weight = cpumask_weight(new_mask);
+	struct rq *rq;
+	int weight;
 
 	BUG_ON(!dl_task(p));
 
@@ -1428,34 +1429,35 @@ static void set_cpus_allowed_dl(struct task_struct *p,
 	 * Update only if the task is actually running (i.e.,
 	 * it is on the rq AND it is not throttled).
 	 */
-	if (on_dl_rq(&p->dl) && (weight != p->dl.nr_cpus_allowed)) {
-		struct rq *rq = task_rq(p);
+	if (!on_dl_rq(&p->dl))
+		return;
 
-		if (!task_current(rq, p)) {
-			/*
-			 * If the task was on the pushable list,
-			 * make sure it stays there only if the new
-			 * mask allows that.
-			 */
-			if (p->dl.nr_cpus_allowed > 1)
-				dequeue_pushable_dl_task(rq, p);
+	weight = cpumask_weight(new_mask);
 
-			if (weight > 1)
-				enqueue_pushable_dl_task(rq, p);
-		}
+	/*
+	 * Only update if the process changes its state from whether it
+	 * can migrate or not.
+	 */
+	if ((p->dl.nr_cpus_allowed > 1) == (weight > 1))
+		return;
 
-		if ((p->dl.nr_cpus_allowed <= 1) && (weight > 1)) {
-			rq->dl.dl_nr_migratory++;
-		} else if ((p->dl.nr_cpus_allowed > 1) && (weight <= 1)) {
-			BUG_ON(!rq->dl.dl_nr_migratory);
-			rq->dl.dl_nr_migratory--;
-		}
+	rq = task_rq(p);
 
-		update_dl_migration(&rq->dl);
+	/*
+	 * The process used to be able to migrate OR it can now migrate
+	 */
+	if (weight <= 1) {
+		if (!task_current(rq, p))
+			dequeue_pushable_dl_task(rq, p);
+		BUG_ON(!rq->dl.dl_nr_migratory);
+		rq->dl.dl_nr_migratory--;
+	} else {
+		if (!task_current(rq, p))
+			enqueue_pushable_dl_task(rq, p);
+		rq->dl.dl_nr_migratory++;
 	}
-
-	cpumask_copy(&p->cpus_allowed, new_mask);
-	p->dl.nr_cpus_allowed = weight;
+	
+	update_dl_migration(&rq->dl);
 }
 
 /* Assumes rq->lock is held */
