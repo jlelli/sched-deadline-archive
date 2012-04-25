@@ -1818,6 +1818,7 @@ int sched_fork(struct task_struct *p)
 #endif
 #ifdef CONFIG_SMP
 	plist_node_init(&p->pushable_tasks, MAX_PRIO);
+	RB_CLEAR_NODE(&p->pushable_dl_tasks);
 #endif
 
 	put_cpu();
@@ -5295,6 +5296,7 @@ void do_set_cpus_allowed(struct task_struct *p, const struct cpumask *new_mask)
 		if (p->sched_class && p->sched_class->set_cpus_allowed)
 			p->sched_class->set_cpus_allowed(p, new_mask);
 		p->rt.nr_cpus_allowed = cpumask_weight(new_mask);
+		p->dl.nr_cpus_allowed = cpumask_weight(new_mask);
 	}
 	cpumask_copy(&p->cpus_allowed, new_mask);
 }
@@ -6025,6 +6027,7 @@ static void free_rootdomain(struct rcu_head *rcu)
 	struct root_domain *rd = container_of(rcu, struct root_domain, rcu);
 
 	cpupri_cleanup(&rd->cpupri);
+	free_cpumask_var(rd->dlo_mask);
 	free_cpumask_var(rd->rto_mask);
 	free_cpumask_var(rd->online);
 	free_cpumask_var(rd->span);
@@ -6076,8 +6079,10 @@ static int init_rootdomain(struct root_domain *rd)
 		goto out;
 	if (!alloc_cpumask_var(&rd->online, GFP_KERNEL))
 		goto free_span;
-	if (!alloc_cpumask_var(&rd->rto_mask, GFP_KERNEL))
+	if (!alloc_cpumask_var(&rd->dlo_mask, GFP_KERNEL))
 		goto free_online;
+	if (!alloc_cpumask_var(&rd->rto_mask, GFP_KERNEL))
+		goto free_dlo_mask;
 
 	if (cpupri_init(&rd->cpupri) != 0)
 		goto free_rto_mask;
@@ -6085,6 +6090,8 @@ static int init_rootdomain(struct root_domain *rd)
 
 free_rto_mask:
 	free_cpumask_var(rd->rto_mask);
+free_dlo_mask:
+	free_cpumask_var(rd->dlo_mask);
 free_online:
 	free_cpumask_var(rd->online);
 free_span:
@@ -7204,6 +7211,7 @@ void __init sched_init_smp(void)
 	free_cpumask_var(non_isolated_cpus);
 
 	init_sched_rt_class();
+	init_sched_dl_class();
 }
 #else
 void __init sched_init_smp(void)
