@@ -277,7 +277,7 @@ static inline void setup_new_dl_entity(struct sched_dl_entity *dl_se,
  * of a entity is replenished, its deadline is also postponed. That ensures
  * the overrunning entity can't interfere with other entity in the system and
  * can't make them miss their deadlines. Reasons why this kind of overruns
- * could happen are, typically, a entity voluntarily trying to overcume its
+ * could happen are, typically, a entity voluntarily trying to overcome its
  * runtime, or it just underestimated it during sched_setscheduler_ex().
  */
 static void replenish_dl_entity(struct sched_dl_entity *dl_se,
@@ -298,7 +298,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 	}
 
 	/*
-	 * We Keep moving the deadline away until we get some
+	 * We keep moving the deadline away until we get some
 	 * available runtime for the entity. This ensures correct
 	 * handling of situations where the runtime overrun is
 	 * arbitrary large.
@@ -874,7 +874,7 @@ out:
 static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 {
 	/*
-	 * Current can't be migrated, useles to reschedule,
+	 * Current can't be migrated, useless to reschedule,
 	 * let's hope p can move out.
 	 */
 	if (rq->curr->dl.nr_cpus_allowed == 1 ||
