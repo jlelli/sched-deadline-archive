@@ -834,7 +834,7 @@ static struct {
 } dbg_data = {
 	.idx = 0,
 	.tty = 0,
-	.lck = __RW_LOCK_UNLOCKED(lck)
+	.lck = __RW_LOCK_UNLOCKED(dbg_data.lck)
 };
 
 /**

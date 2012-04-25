@@ -20,6 +20,7 @@
 #include <linux/fs_struct.h>	/* get_fs_root et.al. */
 #include <linux/fsnotify.h>	/* fsnotify_vfsmount_delete */
 #include <linux/uaccess.h>
+#include <linux/delay.h>
 #include "pnode.h"
 #include "internal.h"
 
@@ -313,8 +314,11 @@ int mnt_want_write(struct vfsmount *m)
 	 * incremented count after it has set MNT_WRITE_HOLD.
 	 */
 	smp_mb();
-	while (mnt->mnt.mnt_flags & MNT_WRITE_HOLD)
-		cpu_relax();
+	while (mnt->mnt.mnt_flags & MNT_WRITE_HOLD) {
+		preempt_enable();
+		cpu_chill();
+		preempt_disable();
+	}
 	/*
 	 * After the slowpath clears MNT_WRITE_HOLD, mnt_is_readonly will
 	 * be set to match its requirements. So we must not load that until

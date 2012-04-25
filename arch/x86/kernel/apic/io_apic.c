@@ -2555,7 +2555,8 @@ atomic_t irq_mis_count;
 static inline bool ioapic_irqd_mask(struct irq_data *data, struct irq_cfg *cfg)
 {
 	/* If we are moving the irq we need to mask it */
-	if (unlikely(irqd_is_setaffinity_pending(data))) {
+	if (unlikely(irqd_is_setaffinity_pending(data) &&
+		     !irqd_irq_inprogress(data))) {
 		mask_ioapic(cfg);
 		return true;
 	}

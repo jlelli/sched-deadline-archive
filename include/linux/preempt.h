@@ -54,11 +54,17 @@ do { \
 	dec_preempt_count(); \
 } while (0)
 
-#define preempt_enable_no_resched()	sched_preempt_enable_no_resched()
+#ifndef CONFIG_PREEMPT_RT_BASE
+# define preempt_enable_no_resched()	sched_preempt_enable_no_resched()
+# define preempt_check_resched_rt()	do { } while (0)
+#else
+# define preempt_enable_no_resched()	preempt_enable()
+# define preempt_check_resched_rt()	preempt_check_resched()
+#endif
 
 #define preempt_enable() \
 do { \
-	preempt_enable_no_resched(); \
+	sched_preempt_enable_no_resched(); \
 	barrier(); \
 	preempt_check_resched(); \
 } while (0)
@@ -101,8 +107,30 @@ do { \
 #define preempt_disable_notrace()		do { } while (0)
 #define preempt_enable_no_resched_notrace()	do { } while (0)
 #define preempt_enable_notrace()		do { } while (0)
+#define preempt_check_resched_rt()	do { } while (0)
 
 #endif /* CONFIG_PREEMPT_COUNT */
+
+#ifdef CONFIG_PREEMPT_RT_FULL
+# define preempt_disable_rt()		preempt_disable()
+# define preempt_enable_rt()		preempt_enable()
+# define preempt_disable_nort()		do { } while (0)
+# define preempt_enable_nort()		do { } while (0)
+# ifdef CONFIG_SMP
+   extern void migrate_disable(void);
+   extern void migrate_enable(void);
+# else /* CONFIG_SMP */
+#  define migrate_disable()		do { } while (0)
+#  define migrate_enable()		do { } while (0)
+# endif /* CONFIG_SMP */
+#else
+# define preempt_disable_rt()		do { } while (0)
+# define preempt_enable_rt()		do { } while (0)
+# define preempt_disable_nort()		preempt_disable()
+# define preempt_enable_nort()		preempt_enable()
+# define migrate_disable()		preempt_disable()
+# define migrate_enable()		preempt_enable()
+#endif
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 

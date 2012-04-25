@@ -16,6 +16,10 @@
 
 #include <linux/atomic.h>
 
+#ifdef CONFIG_PREEMPT_RT_FULL
+#include <linux/rwsem_rt.h>
+#else /* PREEMPT_RT_FULL */
+
 struct rw_semaphore;
 
 #ifdef CONFIG_RWSEM_GENERIC_SPINLOCK
@@ -129,5 +133,7 @@ extern void down_write_nested(struct rw_semaphore *sem, int subclass);
 # define down_read_nested(sem, subclass)		down_read(sem)
 # define down_write_nested(sem, subclass)	down_write(sem)
 #endif
+
+#endif /* !PREEMPT_RT_FULL */
 
 #endif /* _LINUX_RWSEM_H */
