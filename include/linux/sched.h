@@ -1712,7 +1712,7 @@ static inline int dl_task(struct task_struct *p)
 
 static inline int rt_prio(int prio)
 {
-	if (unlikely(prio >= MAX_DL_PRIO && prio < MAX_RT_PRIO))
+	if ((unsigned)prio < MAX_RT_PRIO)
 		return 1;
 	return 0;
 }
