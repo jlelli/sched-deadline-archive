@@ -9,7 +9,7 @@
  * than their reserved bandwidth will be slowed down (and may potentially
  * miss some of their deadlines), and won't affect any other task.
  *
- * Copyright (C) 2010 Dario Faggioli <raistlin@linux.it>,
+ * Copyright (C) 2012 Dario Faggioli <raistlin@linux.it>,
  *                    Juri Lelli <juri.lelli@gmail.com>,
  *                    Michael Trimarchi <michael@amarulasolutions.com>,
  *                    Fabio Checconi <fabio@gandalf.sssup.it>
