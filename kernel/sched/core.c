@@ -3948,31 +3948,6 @@ recheck:
 	 * Allow unprivileged RT tasks to decrease priority:
 	 */
 	if (user && !capable(CAP_SYS_NICE)) {
-		if (dl_policy(policy)) {
-			u64 rlim_dline, rlim_rtime;
-			u64 dline, rtime;
-
-			if (!lock_task_sighand(p, &flags))
-				return -ESRCH;
-			rlim_dline = p->signal->rlim[RLIMIT_DLDLINE].rlim_cur;
-			rlim_rtime = p->signal->rlim[RLIMIT_DLRTIME].rlim_cur;
-			unlock_task_sighand(p, &flags);
-
-			/* can't set/change -deadline policy */
-			if (policy != p->policy && !rlim_rtime)
-				return -EPERM;
-
-			/* can't decrease the deadline */
-			rlim_dline *= NSEC_PER_USEC;
-			dline = param->sched_deadline;
-			if (dline < p->dl.dl_deadline && dline < rlim_dline)
-				return -EPERM;
-			/* can't increase the runtime */
-			rlim_rtime *= NSEC_PER_USEC;
-			rtime = param->sched_runtime;
-			if (rtime > p->dl.dl_runtime && rtime > rlim_rtime)
-				return -EPERM;
-		}
 		if (rt_policy(policy)) {
 			unsigned long rlim_rtprio =
 					task_rlimit(p, RLIMIT_RTPRIO);
