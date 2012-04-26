@@ -333,10 +333,21 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
  * Here we check if --at time t-- an entity (which is probably being
  * [re]activated or, in general, enqueued) can use its remaining runtime
  * and its current deadline _without_ exceeding the bandwidth it is
- * assigned (function returns true if it can).
+ * assigned (function returns true if it can't). We are in fact applying
+ * one of the CBS rules: when a task wakes up, if the residual runtime
+ * over residual deadline fits within the allocated bandwidth, then we
+ * can keep the current (absolute) deadline and residual budget without
+ * disrupting the schedulability of the system. Otherwise, we should
+ * refill the runtime and set the deadline a period in the future,
+ * because keeping the current (absolute) deadline of the task would
+ * result in breaking guarantees promised to other tasks (refer to
+ * Documentation/scheduler/sched-deadline.txt for more informations).
  *
- * For this to hold, we must check if:
- *   runtime / (deadline - t) < dl_runtime / dl_period .
+ * This function returns true if:
+ *
+ *   runtime / (deadline - t) > dl_runtime / dl_period ,
+ *
+ * IOW we can't recycle current parameters.
  *
  * Notice that the bandwidth check is done against the period. For
  * task with deadline equal to period this is the same of using

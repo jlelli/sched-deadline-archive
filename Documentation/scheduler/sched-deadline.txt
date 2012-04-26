@@ -43,10 +43,10 @@ CONTENTS
  time instant a task (better, an instance) activates plus the relative
  deadline.
 
- The EDF algorithm selects the task with the smallest absolute deadline as
- the one to be executed first, while the CBS ensures that each task runs for
- at most its runtime every period, avoiding any interference between different
- tasks (bandwidth isolation).
+ The EDF[1] algorithm selects the task with the smallest absolute deadline as
+ the one to be executed first, while the CBS[2,3] ensures that each task runs
+ for at most its runtime every period, avoiding any interference between
+ different tasks (bandwidth isolation).
  Thanks to this feature, also tasks that do not strictly comply with the
  computational model described above can effectively use the new policy.
  IOW, there are no limitations on what kind of task can exploit this new
@@ -54,6 +54,15 @@ CONTENTS
  suited for periodic or sporadic tasks that need guarantees on their
  timing behavior, e.g., multimedia, streaming, control applications, etc.
 
+ References:
+  1 - C. L. Liu and J. W. Layland. Scheduling algorithms for multiprogram-
+      ming in a hard-real-time environment. Journal of the Association for
+      Computing Machinery, 20(1), 1973.
+  2 - L. Abeni , G. Buttazzo. Integrating Multimedia Applications in Hard
+      Real-Time Systems. Proceedings of the 19th IEEE Real-time Systems
+      Symposium, 1998. http://retis.sssup.it/~giorgio/paps/1998/rtss98-cbs.pdf
+  3 - L. Abeni. Server Mechanisms for Multimedia Applications. ReTiS Lab
+      Technical Report. http://xoomer.virgilio.it/lucabe72/pubs/tr-98-01.ps
 
 3. Bandwidth management
 =======================
