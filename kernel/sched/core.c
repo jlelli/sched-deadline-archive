@@ -4007,7 +4007,8 @@ recheck:
 	 * If not changing anything there's no need to proceed further:
 	 */
 	if (unlikely(policy == p->policy && (!rt_policy(policy) ||
-			param->sched_priority == p->rt_priority))) {
+			param->sched_priority == p->rt_priority) &&
+			!dl_policy(policy))) {
 		task_rq_unlock(rq, p, &flags);
 		return 0;
 	}
