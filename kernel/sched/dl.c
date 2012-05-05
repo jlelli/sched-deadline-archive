@@ -257,6 +257,11 @@ static inline void setup_new_dl_entity(struct sched_dl_entity *dl_se,
 
 	WARN_ON(!dl_se->dl_new || dl_se->dl_throttled);
 
+	/*
+	 * We use the regular wall clock time to set deadlines in the
+	 * future; in fact, we must consider execution overheads (time
+	 * spent on hardirq context, etc.).
+	 */
 	dl_se->deadline = rq->clock + pi_se->dl_deadline;
 	dl_se->runtime = pi_se->dl_runtime;
 	dl_se->dl_new = 0;
@@ -578,6 +583,11 @@ static void update_curr_dl(struct rq *rq)
 	if (!dl_task(curr) || !on_dl_rq(dl_se))
 		return;
 
+	/*
+	 * Consumed budget is computed considering the time as
+	 * observed by schedulable tasks (excluding time spent
+	 * in hardirq context, etc.)
+	 */
 	delta_exec = rq->clock_task - curr->se.exec_start;
 	if (unlikely((s64)delta_exec < 0))
 		delta_exec = 0;
@@ -589,7 +599,7 @@ static void update_curr_dl(struct rq *rq)
 	schedstat_add(&rq->dl, exec_clock, delta_exec);
 	account_group_exec_runtime(curr, delta_exec);
 
-	curr->se.exec_start = rq->clock;
+	curr->se.exec_start = rq->clock_task;
 	cpuacct_charge(curr, delta_exec);
 
 	sched_rt_avg_update(rq, delta_exec);
@@ -1006,7 +1016,6 @@ struct task_struct *pick_next_task_dl(struct rq *rq)
 static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
 {
 	update_curr_dl(rq);
-	p->se.exec_start = 0;
 
 	if (on_dl_rq(&p->dl) && p->dl.nr_cpus_allowed > 1)
 		enqueue_pushable_dl_task(rq, p);
