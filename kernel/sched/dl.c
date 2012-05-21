@@ -1209,7 +1209,7 @@ static struct rq *find_lock_later_rq(struct task_struct *task, struct rq *rq)
 						       &task->cpus_allowed) ||
 				     task_running(rq, task) ||
 				     !task->on_rq)) {
-				raw_spin_unlock(&later_rq->lock);
+				double_unlock_balance(rq, later_rq);
 				later_rq = NULL;
 				break;
 			}
