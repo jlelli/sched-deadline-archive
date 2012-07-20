@@ -720,6 +720,8 @@ rt_mutex_slowlock(struct rt_mutex *lock, int state,
 	int ret = 0;
 
 	debug_rt_mutex_init_waiter(&waiter);
+	rb_init_node(&waiter.tree_entry);
+	rb_init_node(&waiter.pi_tree_entry);
 
 	raw_spin_lock(&lock->wait_lock);
 
