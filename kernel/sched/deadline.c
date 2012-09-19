@@ -51,7 +51,6 @@ static inline int is_leftmost(struct task_struct *p, struct dl_rq *dl_rq)
 void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 period, u64 runtime)
 {
 	raw_spin_lock_init(&dl_b->dl_runtime_lock);
-	dl_b->dl_period = period;
 	dl_b->dl_runtime = runtime;
 }
 
@@ -64,7 +63,7 @@ void init_dl_bw(struct dl_bw *dl_b)
 	if (global_dl_runtime() == RUNTIME_INF)
 		dl_b->bw = -1;
 	else
-		dl_b->bw = to_ratio(global_dl_period(), global_dl_runtime());
+		dl_b->bw = to_ratio(global_rt_period(), global_dl_runtime());
 	raw_spin_unlock(&def_dl_bandwidth.dl_runtime_lock);
 	dl_b->total_bw = 0;
 }

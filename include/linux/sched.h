@@ -2219,7 +2219,6 @@ int sched_rt_handler(struct ctl_table *table, int write,
 		void __user *buffer, size_t *lenp,
 		loff_t *ppos);
 
-extern unsigned int sysctl_sched_dl_period;
 extern int sysctl_sched_dl_runtime;
 
 int sched_dl_handler(struct ctl_table *table, int write,

@@ -104,20 +104,20 @@ struct rt_bandwidth {
 	struct hrtimer		rt_period_timer;
 };
 /*
- * To keep the bandwidth of -deadline tasks and groups under control
- * we need some place where:
- *  - store the maximum -deadline bandwidth of the system (the group);
+ * To keep the bandwidth of -deadline tasks under control we need some
+ * place where:
+ *  - store the maximum -deadline bandwidth of the system;
  *  - cache the fraction of that bandwidth that is currently allocated.
  *
  * This is all done in the data structure below. It is similar to the
  * one used for RT-throttling (rt_bandwidth), with the main difference
  * that, since here we are only interested in admission control, we
- * do not decrease any runtime while the group "executes", neither we
+ * do not decrease any runtime while the task "executes", neither we
  * need a timer to replenish it.
  *
  * With respect to SMP, the bandwidth is given on a per-CPU basis,
  * meaning that:
- *  - dl_bw (< 100%) is the bandwidth of the system (group) on each CPU;
+ *  - dl_bw (< 100%) is the bandwidth of the system on each CPU;
  *  - dl_total_bw array contains, in the i-eth element, the currently
  *    allocated bandwidth on the i-eth CPU.
  * Moreover, groups consume bandwidth on each CPU, while tasks only
@@ -130,7 +130,6 @@ struct rt_bandwidth {
 struct dl_bandwidth {
 	raw_spinlock_t dl_runtime_lock;
 	u64 dl_runtime;
-	u64 dl_period;
 };
 
 static inline int dl_bandwidth_enabled(void)
@@ -140,10 +139,12 @@ static inline int dl_bandwidth_enabled(void)
 
 struct dl_bw {
 	raw_spinlock_t lock;
-	u64 bw, total_bw;
+	/* default value */
+	u64 bw;
+	/* allocated */
+	u64 total_bw;
 };
 
-static inline u64 global_dl_period(void);
 static inline u64 global_dl_runtime(void);
 
 extern struct mutex sched_domains_mutex;
@@ -813,11 +814,6 @@ static inline u64 global_rt_runtime(void)
 		return RUNTIME_INF;
 
 	return (u64)sysctl_sched_rt_runtime * NSEC_PER_USEC;
-}
-
-static inline u64 global_dl_period(void)
-{
-	return (u64)sysctl_sched_dl_period * NSEC_PER_USEC;
 }
 
 static inline u64 global_dl_runtime(void)
