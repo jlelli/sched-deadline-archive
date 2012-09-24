@@ -1238,7 +1238,6 @@ struct sched_stats_dl {
 
 struct sched_dl_entity {
 	struct rb_node	rb_node;
-	int nr_cpus_allowed;
 
 	/*
 	 * Original scheduling parameters. Copied here from sched_param2
