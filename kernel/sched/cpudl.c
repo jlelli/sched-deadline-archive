@@ -98,8 +98,8 @@ static inline int cpudl_maximum(struct cpudl *cp)
  *
  * Returns: int - best CPU (heap maximum if suitable)
  */
-int cpudl_find(struct cpudl *cp, struct cpumask *dlo_mask,
-		struct task_struct *p, struct cpumask *later_mask)
+int cpudl_find(struct cpudl *cp, struct task_struct *p,
+	       struct cpumask *later_mask)
 {
 	int best_cpu = -1;
 	const struct sched_dl_entity *dl_se = &p->dl;

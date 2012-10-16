@@ -915,7 +915,7 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 	 * let's hope p can move out.
 	 */
 	if (rq->curr->nr_cpus_allowed == 1 ||
-	    cpudl_find(&rq->rd->cpudl, rq->rd->dlo_mask, rq->curr, NULL) == -1)
+	    cpudl_find(&rq->rd->cpudl, rq->curr, NULL) == -1)
 		return;
 
 	/*
@@ -923,7 +923,7 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 	 * see if it is pushed or pulled somewhere else.
 	 */
 	if (p->nr_cpus_allowed != 1 &&
-	    cpudl_find(&rq->rd->cpudl, rq->rd->dlo_mask, p, NULL) != -1)
+	    cpudl_find(&rq->rd->cpudl, p, NULL) != -1)
 		return;
 
 	resched_task(rq->curr);
@@ -1133,7 +1133,6 @@ static int find_later_rq(struct task_struct *task)
 		return -1;
 
 	best_cpu = cpudl_find(&task_rq(task)->rd->cpudl,
-			task_rq(task)->rd->dlo_mask,
 			task, later_mask);
 	if (best_cpu == -1)
 		return -1;
