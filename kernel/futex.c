@@ -2297,8 +2297,6 @@ static int futex_wait_requeue_pi(u32 __user *uaddr, unsigned int flags,
 	 */
 	debug_rt_mutex_init_waiter(&rt_waiter);
 	rt_waiter.task = NULL;
-	//rb_init_node(&rt_waiter.tree_entry);
-	//rb_init_node(&rt_waiter.pi_tree_entry);
 
 	ret = get_futex_key(uaddr2, flags & FLAGS_SHARED, &key2, VERIFY_WRITE);
 	if (unlikely(ret != 0))
