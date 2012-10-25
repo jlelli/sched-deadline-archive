@@ -12,7 +12,7 @@
  * Copyright (C) 2012 Dario Faggioli <raistlin@linux.it>,
  *                    Juri Lelli <juri.lelli@gmail.com>,
  *                    Michael Trimarchi <michael@amarulasolutions.com>,
- *                    Fabio Checconi <fabio@gandalf.sssup.it>
+ *                    Fabio Checconi <fchecconi@gmail.com>
  */
 #include <linux/math128.h>
 #include "sched.h"
