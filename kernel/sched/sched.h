@@ -5,7 +5,7 @@
 #include <linux/stop_machine.h>
 
 #include "cpupri.h"
-#include "cpudl.h"
+#include "cpudeadline.h"
 
 extern __read_mostly int scheduler_running;
 

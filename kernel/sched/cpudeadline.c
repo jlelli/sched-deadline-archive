@@ -13,7 +13,7 @@
 
 #include <linux/gfp.h>
 #include <linux/kernel.h>
-#include "cpudl.h"
+#include "cpudeadline.h"
 
 static inline int parent(int i)
 {
