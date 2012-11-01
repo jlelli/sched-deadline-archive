@@ -4027,15 +4027,24 @@ recheck:
 #endif
 #ifdef CONFIG_SMP
 		if (dl_bandwidth_enabled() && dl_policy(policy)) {
-			const struct cpumask *span = rq->rd->span;
+			cpumask_t *span = rq->rd->span;
+			cpumask_t act_affinity;
+
+			/*
+			 * cpus_allowed mask is statically initialized with
+			 * CPU_MASK_ALL, span is instead dynamic. Here we
+			 * compute the "dynamic" affinity of a task.
+			 */
+			cpumask_and(&act_affinity, &p->cpus_allowed,
+				    cpu_active_mask);
 
 			/*
 			 * Don't allow tasks with an affinity mask smaller than
 			 * the entire root_domain to become SCHED_DEADLINE. We
 			 * will also fail if there's no bandwidth available.
 			 */
-			if (!cpumask_equal(&p->cpus_allowed, span) ||
-			    rq->rd->dl_bw.bw == 0) {
+			if (!cpumask_equal(&act_affinity, span) ||
+			    		   rq->rd->dl_bw.bw == 0) {
 				__task_rq_unlock(rq);
 				raw_spin_unlock_irqrestore(&p->pi_lock, flags);
 				return -EPERM;
