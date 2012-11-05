@@ -7992,9 +7992,9 @@ int sched_rt_handler(struct ctl_table *table, int write,
 	ret = proc_dointvec(table, write, buffer, lenp, ppos);
 
 	if (!ret && write) {
+		ret = sched_rt_global_constraints();
 		raw_spin_lock_irqsave(&def_dl_bandwidth.dl_runtime_lock,
 				      flags);
-		ret = sched_rt_global_constraints();
 		if (ret) {
 			sysctl_sched_rt_period = old_period;
 			sysctl_sched_rt_runtime = old_runtime;
