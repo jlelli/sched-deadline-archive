@@ -14,8 +14,9 @@
  *                    Michael Trimarchi <michael@amarulasolutions.com>,
  *                    Fabio Checconi <fchecconi@gmail.com>
  */
-#include <linux/math128.h>
 #include "sched.h"
+
+#include <linux/slab.h>
 
 struct dl_bandwidth def_dl_bandwidth;
 
