@@ -376,11 +376,16 @@ static bool dl_entity_overflow(struct sched_dl_entity *dl_se,
 	 * are the relative deadline and the maximum runtime of each
 	 * instance, runtime is the runtime left for the last instance
 	 * and (deadline - t), since t is rq->clock, is the time left
-	 * to the (absolute) deadline. Therefore, overflowing the u64
-	 * type is very unlikely to occur in both cases.
+	 * to the (absolute) deadline. Even if overflowing the u64 type
+	 * is very unlikely to occur in both cases, here we scale down
+	 * as we want to avoid that risk at all. Scaling down by 10
+	 * means that we reduce granularity to 1us. We are fine with it,
+	 * since this is only a true/false check and, anyway, thinking
+	 * of anything below microseconds resolution is actually fiction
+	 * (but still we want to give the user that illusion >;).
 	 */
-	left = pi_se->dl_period * dl_se->runtime;
-	right = (dl_se->deadline - t) * pi_se->dl_runtime;
+	left = (pi_se->dl_period >> 10) * (dl_se->runtime >> 10);
+	right = ((dl_se->deadline - t) >> 10) * (pi_se->dl_runtime >> 10);
 
 	return dl_time_before(right, left);
 }
