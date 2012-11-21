@@ -3875,15 +3875,18 @@ __getparam_dl(struct task_struct *p, struct sched_param2 *param2)
  * This function validates the new parameters of a -deadline task.
  * We ask for the deadline not being zero, and greater or equal
  * than the runtime, as well as the period of being zero or
- * greater than deadline.
+ * greater than deadline. Furthermore, we have to be sure that
+ * user parameters are above the internal resolution (1us); we
+ * check sched_runtime only since it is always the smaller one.
  */
 static bool
 __checkparam_dl(const struct sched_param2 *prm)
 {
 	return prm && prm->sched_deadline != 0 &&
 	       (prm->sched_period == 0 ||
-		(s64)(prm->sched_period - prm->sched_deadline) >= 0) &&
-	       (s64)(prm->sched_deadline - prm->sched_runtime) >= 0;
+	       (s64)(prm->sched_period - prm->sched_deadline) >= 0) &&
+	       (s64)(prm->sched_deadline - prm->sched_runtime) >= 0 &&
+	       prm->sched_runtime >= (2 << (DL_SCALE - 1));
 }
 
 /*

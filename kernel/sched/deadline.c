@@ -384,8 +384,9 @@ static bool dl_entity_overflow(struct sched_dl_entity *dl_se,
 	 * of anything below microseconds resolution is actually fiction
 	 * (but still we want to give the user that illusion >;).
 	 */
-	left = (pi_se->dl_period >> 10) * (dl_se->runtime >> 10);
-	right = ((dl_se->deadline - t) >> 10) * (pi_se->dl_runtime >> 10);
+	left = (pi_se->dl_period >> DL_SCALE) * (dl_se->runtime >> DL_SCALE);
+	right = ((dl_se->deadline - t) >> DL_SCALE) *
+		(pi_se->dl_runtime >> DL_SCALE);
 
 	return dl_time_before(right, left);
 }
