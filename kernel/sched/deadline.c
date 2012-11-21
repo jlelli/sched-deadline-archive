@@ -363,7 +363,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 static bool dl_entity_overflow(struct sched_dl_entity *dl_se,
 			       struct sched_dl_entity *pi_se, u64 t)
 {
-	u128 left, right;
+	u64 left, right;
 
 	/*
 	 * left and right are the two sides of the equation above,
@@ -378,13 +378,10 @@ static bool dl_entity_overflow(struct sched_dl_entity *dl_se,
 	 * to the (absolute) deadline. Therefore, overflowing the u64
 	 * type is very unlikely to occur in both cases.
 	 */
-	left = mul_u64_u64(pi_se->dl_period, dl_se->runtime);
-	right = mul_u64_u64((dl_se->deadline - t), pi_se->dl_runtime);
+	left = pi_se->dl_period * dl_se->runtime;
+	right = (dl_se->deadline - t) * pi_se->dl_runtime;
 
-	if (cmp_u128(left, right) > 0)
-		return true;
-	
-	return false; 
+	return dl_time_before(right, left);
 }
 
 /*
