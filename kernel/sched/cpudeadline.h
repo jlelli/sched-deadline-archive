@@ -1,21 +1,20 @@
 #ifndef _LINUX_CPUDL_H
 #define _LINUX_CPUDL_H
 
-#include <linux/sched.h>
+#include <linux/cpumask.h>
+#include <linux/types.h>
 
-#define IDX_INVALID     -1
-
-struct array_item {
-	u64 dl;
-	int cpu;
-};
+#define NO_CACHED_CPU		-1
+#define NO_CPU_DL		-2
+#define NO_CACHED_DL		0
 
 struct cpudl {
 	raw_spinlock_t lock;
-	int size;
-	int cpu_to_idx[NR_CPUS];
-	struct array_item elements[NR_CPUS];
 	cpumask_var_t free_cpus;
+	atomic_t cached_cpu;
+	atomic64_t current_dl[NR_CPUS];
+
+ 	bool (*cmp_dl)(u64 a, u64 b);
 };
 
 
@@ -23,7 +22,7 @@ struct cpudl {
 int cpudl_find(struct cpudl *cp, struct task_struct *p,
 	       struct cpumask *later_mask);
 void cpudl_set(struct cpudl *cp, int cpu, u64 dl, int is_valid);
-int cpudl_init(struct cpudl *cp);
+int cpudl_init(struct cpudl *cp, bool (*cmp_dl)(u64 a, u64 b));
 void cpudl_cleanup(struct cpudl *cp);
 #else
 #define cpudl_set(cp, cpu, dl) do { } while (0)
