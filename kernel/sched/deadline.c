@@ -1362,66 +1362,61 @@ static void push_dl_tasks(struct rq *rq)
 
 static int pull_dl_task(struct rq *this_rq)
 {
-	int this_cpu = this_rq->cpu, ret = 0, cpu, tries;
+	int this_cpu = this_rq->cpu, ret = 0, cpu;
 	struct task_struct *p;
 	struct rq *src_rq;
 
 	if (likely(!dl_overloaded(this_rq)))
 		return 0;
 
-	for(tries = 0; tries < DL_MAX_TRIES; tries++) {
+	cpu = cpudl_find(&this_rq->rd->pull_cpudl, NULL, NULL);
 
-		cpu = cpudl_find(&this_rq->rd->pull_cpudl, NULL, NULL);
+	if(cpu == -1 || this_cpu == cpu)
+		return 0;
 
-		if(cpu == -1 || this_cpu == cpu)
-			return 0;
+	src_rq = cpu_rq(cpu);
 
-		src_rq = cpu_rq(cpu);
+	/* Might drop this_rq->lock */
+	double_lock_balance(this_rq, src_rq);
 
-		/* Might drop this_rq->lock */
-		double_lock_balance(this_rq, src_rq);
+	/*
+	 * If the pullable task is no more on the
+	 * runqueue, another scheduler instance has
+	 * removed it, so we exit 
+	 */
+	if(src_rq->dl.dl_nr_running <= 1)
+		goto out;
+
+	p = pick_next_earliest_dl_task(src_rq, this_cpu);
+
+	/*
+	 * We found a task to be pulled if:
+	 *  - p can run on this cpu (otherwise
+	 *    pick_next_earliest_dl_task has returned NULL)
+	 *  - it preempts our current (if there's one)
+	 */
+	if (p && (!this_rq->dl.dl_nr_running || 
+		dl_time_before(p->dl.deadline,
+			this_rq->dl.earliest_dl.curr))) {
+		WARN_ON(p == src_rq->curr);
+		WARN_ON(!p->on_rq);
 
 		/*
-		 * If the pullable task is no more on the
-		 * runqueue, we search for another runqueue
+		 * Then we pull iff p has actually an earlier
+		 * deadline than the current task of its runqueue.
 		 */
-		if(src_rq->dl.dl_nr_running <= 1)
-			continue;
+		if (dl_time_before(p->dl.deadline,
+				   src_rq->curr->dl.deadline))
+			goto out;
 
-		p = pick_next_earliest_dl_task(src_rq, this_cpu);
+		ret = 1;
 
-		/*
-		 * We found a task to be pulled if:
-		 *  - p can run on this cpu (otherwise
-		 *    pick_next_earliest_dl_task has returned NULL)
-		 *  - it preempts our current (if there's one)
-		 */
-		if (p && (!this_rq->dl.dl_nr_running || 
-			dl_time_before(p->dl.deadline,
-				this_rq->dl.earliest_dl.curr))) {
-			WARN_ON(p == src_rq->curr);
-			WARN_ON(!p->on_rq);
-
-			/*
-			 * Then we pull iff p has actually an earlier
-			 * deadline than the current task of its runqueue.
-			 */
-			if (dl_time_before(p->dl.deadline,
-					   src_rq->curr->dl.deadline))
-				goto skip;
-
-			ret = 1;
-
-			deactivate_task(src_rq, p, 0);
-			set_task_cpu(p, this_cpu);
-			activate_task(this_rq, p, 0);
-
-			/* Is there any other task even earlier? */
-			goto skip;
-		}
+		deactivate_task(src_rq, p, 0);
+		set_task_cpu(p, this_cpu);
+		activate_task(this_rq, p, 0);
 	}
 
-skip:
+out:
 	double_unlock_balance(this_rq, src_rq);
 
 	return ret;
