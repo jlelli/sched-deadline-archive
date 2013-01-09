@@ -36,6 +36,7 @@ static inline void update_cache_slow(struct cpudl *cp)
 			best_dl = current_dl;
 			best_cpu = i;
 		}
+	}
 
 	atomic_set(&cp->cached_cpu, best_cpu);
 	smp_wmb();

@@ -655,7 +655,9 @@ static void inc_dl_deadline(struct dl_rq *dl_rq, u64 deadline)
 		 */
 		dl_rq->earliest_dl.next = dl_rq->earliest_dl.curr;
 		dl_rq->earliest_dl.curr = deadline;
-		cpudl_set(&rq->rd->cpudl, rq->cpu, deadline, 1);
+		cpudl_set(&rq->rd->push_cpudl, rq->cpu, deadline, 1);
+		cpudl_set(&rq->rd->pull_cpudl, rq->cpu, dl_rq->earliest_dl.next,
+			dl_rq->earliest_dl.next == 0 ? 0 : 1);
 	} else if (dl_rq->earliest_dl.next == 0 ||
 		   dl_time_before(deadline, dl_rq->earliest_dl.next)) {
 		/*
@@ -665,6 +667,8 @@ static void inc_dl_deadline(struct dl_rq *dl_rq, u64 deadline)
 		 * recompute the next-earliest.
 		 */
 		dl_rq->earliest_dl.next = next_deadline(rq);
+		cpudl_set(&rq->rd->pull_cpudl, rq->cpu, dl_rq->earliest_dl.next,
+			dl_rq->earliest_dl.next == 0 ? 0 : 1);
 	}
 }
 
@@ -679,7 +683,8 @@ static void dec_dl_deadline(struct dl_rq *dl_rq, u64 deadline)
 	if (!dl_rq->dl_nr_running) {
 		dl_rq->earliest_dl.curr = 0;
 		dl_rq->earliest_dl.next = 0;
-		cpudl_set(&rq->rd->cpudl, rq->cpu, 0, 0);
+		cpudl_set(&rq->rd->push_cpudl, rq->cpu, 0, 0);
+		cpudl_set(&rq->rd->pull_cpudl, rq->cpu, 0, 0);
 	} else {
 		struct rb_node *leftmost = dl_rq->rb_leftmost;
 		struct sched_dl_entity *entry;
@@ -687,7 +692,9 @@ static void dec_dl_deadline(struct dl_rq *dl_rq, u64 deadline)
 		entry = rb_entry(leftmost, struct sched_dl_entity, rb_node);
 		dl_rq->earliest_dl.curr = entry->deadline;
 		dl_rq->earliest_dl.next = next_deadline(rq);
-		cpudl_set(&rq->rd->cpudl, rq->cpu, entry->deadline, 1);
+		cpudl_set(&rq->rd->push_cpudl, rq->cpu, entry->deadline, 1);
+		cpudl_set(&rq->rd->pull_cpudl, rq->cpu, dl_rq->earliest_dl.next,
+			dl_rq->earliest_dl.next == 0 ? 0 : 1);
 	}
 }
 
@@ -918,7 +925,7 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 	 * let's hope p can move out.
 	 */
 	if (rq->curr->nr_cpus_allowed == 1 ||
-	    cpudl_find(&rq->rd->cpudl, rq->curr, NULL) == -1)
+	    cpudl_find(&rq->rd->push_cpudl, rq->curr, NULL) == -1)
 		return;
 
 	/*
@@ -926,7 +933,7 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 	 * see if it is pushed or pulled somewhere else.
 	 */
 	if (p->nr_cpus_allowed != 1 &&
-	    cpudl_find(&rq->rd->cpudl, p, NULL) != -1)
+	    cpudl_find(&rq->rd->push_cpudl, p, NULL) != -1)
 		return;
 
 	resched_task(rq->curr);
@@ -1135,7 +1142,7 @@ static int find_later_rq(struct task_struct *task)
 	if (task->nr_cpus_allowed == 1)
 		return -1;
 
-	best_cpu = cpudl_find(&task_rq(task)->rd->cpudl,
+	best_cpu = cpudl_find(&task_rq(task)->rd->push_cpudl,
 			task, later_mask);
 	if (best_cpu == -1)
 		return -1;
@@ -1355,50 +1362,43 @@ static void push_dl_tasks(struct rq *rq)
 
 static int pull_dl_task(struct rq *this_rq)
 {
-	int this_cpu = this_rq->cpu, ret = 0, cpu;
+	int this_cpu = this_rq->cpu, ret = 0, cpu, tries;
 	struct task_struct *p;
 	struct rq *src_rq;
-	u64 dmin = LONG_MAX;
 
 	if (likely(!dl_overloaded(this_rq)))
 		return 0;
 
-	for_each_cpu(cpu, this_rq->rd->dlo_mask) {
-		if (this_cpu == cpu)
-			continue;
+	for(tries = 0; tries < DL_MAX_TRIES; tries++) {
+
+		cpu = cpudl_find(&this_rq->rd->pull_cpudl, NULL, NULL);
+
+		if(cpu == -1 || this_cpu == cpu)
+			return 0;
 
 		src_rq = cpu_rq(cpu);
-
-		/*
-		 * It looks racy, abd it is! However, as in sched_rt.c,
-		 * we are fine with this.
-		 */
-		if (this_rq->dl.dl_nr_running &&
-		    dl_time_before(this_rq->dl.earliest_dl.curr,
-				   src_rq->dl.earliest_dl.next))
-			continue;
 
 		/* Might drop this_rq->lock */
 		double_lock_balance(this_rq, src_rq);
 
 		/*
-		 * If there are no more pullable tasks on the
-		 * rq, we're done with it.
+		 * If the pullable task is no more on the
+		 * runqueue, we search for another runqueue
 		 */
-		if (src_rq->dl.dl_nr_running <= 1)
-			goto skip;
+		if(src_rq->dl.dl_nr_running <= 1)
+			continue;
 
 		p = pick_next_earliest_dl_task(src_rq, this_cpu);
 
 		/*
 		 * We found a task to be pulled if:
-		 *  - it preempts our current (if there's one),
-		 *  - it will preempt the last one we pulled (if any).
+		 *  - p can run on this cpu (otherwise
+		 *    pick_next_earliest_dl_task has returned NULL)
+		 *  - it preempts our current (if there's one)
 		 */
-		if (p && dl_time_before(p->dl.deadline, dmin) &&
-		    (!this_rq->dl.dl_nr_running ||
-		     dl_time_before(p->dl.deadline,
-				    this_rq->dl.earliest_dl.curr))) {
+		if (p && (!this_rq->dl.dl_nr_running || 
+			dl_time_before(p->dl.deadline,
+				this_rq->dl.earliest_dl.curr))) {
 			WARN_ON(p == src_rq->curr);
 			WARN_ON(!p->on_rq);
 
@@ -1415,13 +1415,14 @@ static int pull_dl_task(struct rq *this_rq)
 			deactivate_task(src_rq, p, 0);
 			set_task_cpu(p, this_cpu);
 			activate_task(this_rq, p, 0);
-			dmin = p->dl.deadline;
 
 			/* Is there any other task even earlier? */
+			goto skip;
 		}
-skip:
-		double_unlock_balance(this_rq, src_rq);
 	}
+
+skip:
+	double_unlock_balance(this_rq, src_rq);
 
 	return ret;
 }
@@ -1504,8 +1505,13 @@ static void rq_online_dl(struct rq *rq)
 	if (rq->dl.overloaded)
 		dl_set_overload(rq);
 
-	if (rq->dl.dl_nr_running > 0)
-		cpudl_set(&rq->rd->cpudl, rq->cpu, rq->dl.earliest_dl.curr, 1);
+	if (rq->dl.dl_nr_running > 0) {
+		cpudl_set(&rq->rd->push_cpudl, rq->cpu,
+			rq->dl.earliest_dl.curr, 1);
+		cpudl_set(&rq->rd->pull_cpudl, rq->cpu,
+			rq->dl.earliest_dl.next,
+			rq->dl.earliest_dl.next == 0 ? 0 : 1);
+	}
 }
 
 /* Assumes rq->lock is held */
@@ -1514,7 +1520,8 @@ static void rq_offline_dl(struct rq *rq)
 	if (rq->dl.overloaded)
 		dl_clear_overload(rq);
 
-	cpudl_set(&rq->rd->cpudl, rq->cpu, 0, 0);
+	cpudl_set(&rq->rd->push_cpudl, rq->cpu, 0, 0);
+	cpudl_set(&rq->rd->pull_cpudl, rq->cpu, 0, 0);
 }
 
 void init_sched_dl_class(void)

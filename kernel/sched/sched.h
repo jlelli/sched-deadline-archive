@@ -80,6 +80,11 @@ static inline bool dl_time_before(u64 a, u64 b)
 	return (s64)(a - b) < 0;
 }
 
+static inline bool dl_time_after(u64 a, u64 b)
+{
+	return (s64)(a - b) > 0;
+}
+
 /*
  * Tells if entity @a should preempt entity @b.
  */
@@ -453,7 +458,8 @@ struct root_domain {
 	cpumask_var_t dlo_mask;
 	atomic_t dlo_count;
 	struct dl_bw dl_bw;
-	struct cpudl cpudl;
+	struct cpudl push_cpudl;
+	struct cpudl pull_cpudl;
 
 	/*
 	 * The "RT overload" flag: it gets set if a CPU has more than
