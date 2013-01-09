@@ -961,18 +961,26 @@ static void
 inc_rt_prio_smp(struct rt_rq *rt_rq, int prio, int prev_prio)
 {
 	struct rq *rq = rq_of_rt_rq(rt_rq);
+	cycles_t x;
 
-	if (rq->online && prio < prev_prio)
+	if (rq->online && prio < prev_prio) {
+		x = get_cycles();
 		cpupri_set(&rq->rd->cpupri, rq->cpu, prio);
+		schedstat_add(&rq->rt, push_set_cycles, get_cycles() - x);
+	}
 }
 
 static void
 dec_rt_prio_smp(struct rt_rq *rt_rq, int prio, int prev_prio)
 {
 	struct rq *rq = rq_of_rt_rq(rt_rq);
+	cycles_t x;
 
-	if (rq->online && rt_rq->highest_prio.curr != prev_prio)
+	if (rq->online && rt_rq->highest_prio.curr != prev_prio) {
+		x = get_cycles();
 		cpupri_set(&rq->rd->cpupri, rq->cpu, rt_rq->highest_prio.curr);
+		schedstat_add(&rq->rt, push_set_cycles, get_cycles() - x);
+	}
 }
 
 #else /* CONFIG_SMP */
@@ -1175,7 +1183,9 @@ static void
 enqueue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct sched_rt_entity *rt_se = &p->rt;
+	cycles_t x;
 
+	x = get_cycles();
 	if (flags & ENQUEUE_WAKEUP)
 		rt_se->timeout = 0;
 
@@ -1185,18 +1195,24 @@ enqueue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 		enqueue_pushable_task(rq, p);
 
 	inc_nr_running(rq);
+	schedstat_add(&rq->rt, enqueue_cycles, get_cycles() - x);
+	schedstat_inc(&rq->rt, nr_enqueue);
 }
 
 static void dequeue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct sched_rt_entity *rt_se = &p->rt;
+	cycles_t x;
 
 	update_curr_rt(rq);
+	x = get_cycles();
 	dequeue_rt_entity(rt_se);
 
 	dequeue_pushable_task(rq, p);
 
 	dec_nr_running(rq);
+	schedstat_add(&rq->dl, dequeue_cycles, get_cycles() - x);
+	schedstat_inc(&rq->dl, nr_dequeue);
 }
 
 /*
@@ -1296,15 +1312,23 @@ out:
 
 static void check_preempt_equal_prio(struct rq *rq, struct task_struct *p)
 {
+	cycles_t x;
+
 	if (rq->curr->nr_cpus_allowed == 1)
 		return;
 
+	x = get_cycles();
 	if (p->nr_cpus_allowed != 1
-	    && cpupri_find(&rq->rd->cpupri, p, NULL))
+	    && cpupri_find(&rq->rd->cpupri, p, NULL)) {
+		schedstat_add(&rq->rt, push_find_cycles, get_cycles() - x);
 		return;
+	}
 
-	if (!cpupri_find(&rq->rd->cpupri, rq->curr, NULL))
+	x = get_cycles();
+	if (!cpupri_find(&rq->rd->cpupri, rq->curr, NULL)) {
+		schedstat_add(&rq->rt, push_find_cycles, get_cycles() - x);
 		return;
+	}
 
 	/*
 	 * There appears to be other cpus that can accept
@@ -1478,7 +1502,9 @@ static int find_lowest_rq(struct task_struct *task)
 	struct sched_domain *sd;
 	struct cpumask *lowest_mask = __get_cpu_var(local_cpu_mask);
 	int this_cpu = smp_processor_id();
+	struct rq *rq = cpu_rq(this_cpu);
 	int cpu      = task_cpu(task);
+	cycles_t x;
 
 	/* Make sure the mask is initialized first */
 	if (unlikely(!lowest_mask))
@@ -1487,8 +1513,11 @@ static int find_lowest_rq(struct task_struct *task)
 	if (task->nr_cpus_allowed == 1)
 		return -1; /* No other targets possible */
 
-	if (!cpupri_find(&task_rq(task)->rd->cpupri, task, lowest_mask))
+	x = get_cycles();
+	if (!cpupri_find(&task_rq(task)->rd->cpupri, task, lowest_mask)) {
+		schedstat_add(&rq->rt, push_find_cycles, get_cycles() - x);
 		return -1; /* No targets found */
+	}
 
 	/*
 	 * At this point we have built a mask of cpus representing the
@@ -1623,19 +1652,21 @@ static int push_rt_task(struct rq *rq)
 {
 	struct task_struct *next_task;
 	struct rq *lowest_rq;
+	cycles_t x;
 	int ret = 0;
 
+	x = get_cycles();
 	if (!rq->rt.overloaded)
-		return 0;
+		goto out;
 
 	next_task = pick_next_pushable_task(rq);
 	if (!next_task)
-		return 0;
+		goto out;
 
 retry:
 	if (unlikely(next_task == rq->curr)) {
 		WARN_ON(1);
-		return 0;
+		goto out;
 	}
 
 	/*
@@ -1645,7 +1676,7 @@ retry:
 	 */
 	if (unlikely(next_task->prio < rq->curr->prio)) {
 		resched_task(rq->curr);
-		return 0;
+		goto out;
 	}
 
 	/* We might release rq lock */
@@ -1671,22 +1702,27 @@ retry:
 			 * to push it to.  Do not retry in this case, since
 			 * other cpus will pull from us when ready.
 			 */
-			goto out;
+			ret = 1;
+			goto put;
 		}
 
-		if (!task)
+		if (!task) {
 			/* No more tasks, just exit */
-			goto out;
+			ret = 1;
+			goto put;
+		}
 
 		/*
 		 * Something has shifted, try again.
 		 */
+		schedstat_inc(&rq->rt, nr_retry_push);
 		put_task_struct(next_task);
 		next_task = task;
 		goto retry;
 	}
 
 	deactivate_task(rq, next_task, 0);
+	schedstat_inc(&rq->rt, nr_pushed_away);
 	set_task_cpu(next_task, lowest_rq->cpu);
 	activate_task(lowest_rq, next_task, 0);
 	ret = 1;
@@ -1695,8 +1731,11 @@ retry:
 
 	double_unlock_balance(rq, lowest_rq);
 
-out:
+put:
 	put_task_struct(next_task);
+out:
+	schedstat_add(&rq->rt, push_cycles, get_cycles() - x);
+	schedstat_inc(&rq->rt, nr_push);
 
 	return ret;
 }
@@ -1713,9 +1752,10 @@ static int pull_rt_task(struct rq *this_rq)
 	int this_cpu = this_rq->cpu, ret = 0, cpu;
 	struct task_struct *p;
 	struct rq *src_rq;
+	cycles_t x = get_cycles();
 
 	if (likely(!rt_overloaded(this_rq)))
-		return 0;
+		goto out;
 
 	for_each_cpu(cpu, this_rq->rd->rto_mask) {
 		if (this_cpu == cpu)
@@ -1771,6 +1811,7 @@ static int pull_rt_task(struct rq *this_rq)
 			ret = 1;
 
 			deactivate_task(src_rq, p, 0);
+			schedstat_inc(&this_rq->rt, nr_pulled_here);
 			set_task_cpu(p, this_cpu);
 			activate_task(this_rq, p, 0);
 			/*
@@ -1783,6 +1824,9 @@ static int pull_rt_task(struct rq *this_rq)
 skip:
 		double_unlock_balance(this_rq, src_rq);
 	}
+out:
+	schedstat_add(&this_rq->rt, pull_cycles, get_cycles() - x);
+	schedstat_inc(&this_rq->rt, nr_pull);
 
 	return ret;
 }
@@ -1857,23 +1901,31 @@ static void set_cpus_allowed_rt(struct task_struct *p,
 /* Assumes rq->lock is held */
 static void rq_online_rt(struct rq *rq)
 {
+	cycles_t x;
+
 	if (rq->rt.overloaded)
 		rt_set_overload(rq);
 
 	__enable_runtime(rq);
 
+	x = get_cycles();
 	cpupri_set(&rq->rd->cpupri, rq->cpu, rq->rt.highest_prio.curr);
+	schedstat_add(&rq->rt, push_set_cycles, get_cycles() - x);
 }
 
 /* Assumes rq->lock is held */
 static void rq_offline_rt(struct rq *rq)
 {
+	cycles_t x;
+
 	if (rq->rt.overloaded)
 		rt_clear_overload(rq);
 
 	__disable_runtime(rq);
 
+	x = get_cycles();
 	cpupri_set(&rq->rd->cpupri, rq->cpu, CPUPRI_INVALID);
+	schedstat_add(&rq->rt, push_set_cycles, get_cycles() - x);
 }
 
 /*

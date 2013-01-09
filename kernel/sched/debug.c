@@ -237,6 +237,21 @@ void print_rt_rq(struct seq_file *m, int cpu, struct rt_rq *rt_rq)
 	P(rt_throttled);
 	PN(rt_time);
 	PN(rt_runtime);
+	P(enqueue_cycles);
+	P(nr_enqueue);
+	P(dequeue_cycles);
+	P(nr_dequeue);
+#ifdef CONFIG_SMP
+	P(nr_pushed_away);
+	P(nr_retry_push);
+	P(nr_pulled_here);
+	P(push_cycles);
+	P(push_find_cycles);
+	P(push_set_cycles);
+	P(nr_push);
+	P(pull_cycles);
+	P(nr_pull);
+#endif
 
 #undef PN
 #undef P
@@ -275,6 +290,23 @@ void print_dl_rq(struct seq_file *m, int cpu, struct dl_rq *dl_rq)
 	PN(exec_clock);
 	__PN(min_deadline);
 	__PN(max_deadline);
+	P(enqueue_cycles);
+	P(nr_enqueue);
+	P(dequeue_cycles);
+	P(nr_dequeue);
+#ifdef CONFIG_SMP
+	P(nr_pushed_away);
+	P(nr_retry_push);
+	P(nr_pulled_here);
+	P(push_cycles);
+	P(push_find_cycles);
+	P(push_set_cycles);
+	P(nr_push);
+	P(pull_cycles);
+	P(pull_find_cycles);
+	P(pull_set_cycles);
+	P(nr_pull);
+#endif
 
 #undef PN
 #undef __PN
