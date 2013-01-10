@@ -2935,8 +2935,10 @@ static void __sched __schedule(void)
 	unsigned long *switch_count;
 	struct rq *rq;
 	int cpu;
+	cycles_t x;
 
 need_resched:
+	x = get_cycles();
 	preempt_disable();
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);
@@ -2984,6 +2986,11 @@ need_resched:
 	clear_tsk_need_resched(prev);
 	rq->skip_clock_update = 0;
 
+	if (dl_task(prev))
+		schedstat_add(&rq->dl, schedule_cycles, get_cycles() - x);
+	if (rt_task(prev))
+		schedstat_add(&rq->rt, schedule_cycles, get_cycles() - x);
+
 	if (likely(prev != next)) {
 		rq->nr_switches++;
 		rq->curr = next;
@@ -3001,9 +3008,18 @@ need_resched:
 	} else
 		raw_spin_unlock_irq(&rq->lock);
 
+	x = get_cycles();
 	post_schedule(rq);
 
 	sched_preempt_enable_no_resched();
+	if (dl_task(next)) {
+		schedstat_add(&rq->dl, schedule_cycles, get_cycles() - x);
+		schedstat_inc(&rq->dl, nr_schedule);
+	}
+	if (rt_task(next)) {
+		schedstat_add(&rq->rt, schedule_cycles, get_cycles() - x);
+		schedstat_inc(&rq->rt, nr_schedule);
+	}
 	if (need_resched())
 		goto need_resched;
 }
