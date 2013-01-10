@@ -241,6 +241,8 @@ void print_rt_rq(struct seq_file *m, int cpu, struct rt_rq *rt_rq)
 	P(nr_enqueue);
 	P(dequeue_cycles);
 	P(nr_dequeue);
+	P(schedule_cycles);
+	P(nr_schedule);
 #ifdef CONFIG_SMP
 	P(nr_pushed_away);
 	P(nr_retry_push);
@@ -294,6 +296,8 @@ void print_dl_rq(struct seq_file *m, int cpu, struct dl_rq *dl_rq)
 	P(nr_enqueue);
 	P(dequeue_cycles);
 	P(nr_dequeue);
+	P(schedule_cycles);
+	P(nr_schedule);
 #ifdef CONFIG_SMP
 	P(nr_pushed_away);
 	P(nr_retry_push);
