@@ -960,6 +960,8 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 			schedstat_add(&rq->dl, push_find_cycles, get_cycles() - x);
 		return;
 	}
+	if (rq->curr->nr_cpus_allowed != 1)
+		schedstat_add(&rq->dl, push_find_cycles, get_cycles() - x);
 
 	/*
 	 * p is migratable, so let's not schedule it and
@@ -971,6 +973,8 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 		schedstat_add(&rq->dl, push_find_cycles, get_cycles() - x);
 		return;
 	}
+	if (p->nr_cpus_allowed != 1)
+		schedstat_add(&rq->dl, push_find_cycles, get_cycles() - x);
 
 	resched_task(rq->curr);
 }
@@ -1374,13 +1378,11 @@ retry:
 			 * again, some other cpu will pull it when ready.
 			 */
 			dequeue_pushable_dl_task(rq, next_task);
-			ret = 1;
 			goto put;
 		}
 
 		if (!task) {
 			/* No more tasks */
-			ret = 1;
 			goto put;
 		}
 
