@@ -27,19 +27,23 @@ static inline void update_cache_slow(struct cpudl *cp)
 	u64 current_dl;
 	int i;
 	
-	for(i = 0; i < NR_CPUS; i++) {
-		current_dl = (u64)atomic64_read(&cp->current_dl[i]);
-		if(current_dl == NO_CACHED_DL)
-			continue;
-		if(best_dl == NO_CACHED_DL ||
-			cp->cmp_dl(best_dl, current_dl)) {
-			best_dl = current_dl;
-			best_cpu = i;
+	if(!cpumask_full(cp->free_cpus))
+		for_each_cpu_not(i, cp->free_cpus) {
+			current_dl = (u64)atomic64_read(&cp->current_dl[i]);
+			if(current_dl == NO_CACHED_DL)
+				continue;
+			if(best_dl == NO_CACHED_DL ||
+				cp->cmp_dl(best_dl, current_dl)) {
+				best_dl = current_dl;
+				best_cpu = i;
+			}
 		}
-	}
 
+	/*
+	 * Implicit memory barrier provided by the next
+	 * unlock operation.
+	 */
 	atomic_set(&cp->cached_cpu, best_cpu);
-	smp_wmb();
 }
 
 /*
@@ -65,60 +69,58 @@ int cpudl_find(struct cpudl *cp, struct task_struct *p,
 		return cpumask_any(later_mask);
 
 	while(true) {
+		/*
+		 * Paired with the last cache update
+		 */
 		smp_rmb();
 		now_cached_cpu = atomic_read(&cp->cached_cpu);
 
 		/*
-		 * there are no CPUs with dl
-		 * tasks enqueued
+		 * There are no CPUs with dl tasks enqueued
  		 */
-		if(now_cached_cpu == NO_CPU_DL)
+		if (now_cached_cpu == NO_CPU_DL)
  			return -1;
 
  		/*
-		 * cache need to be updated
-		 * through the slow-path
+		 * Should the cache be updated through the slow-path?
  		 */
 
-		if(now_cached_cpu == NO_CACHED_CPU) {
-			if(!raw_spin_trylock_irqsave(&cp->lock, flags)) {
+		if (now_cached_cpu == NO_CACHED_CPU) {
+			if (raw_spin_trylock_irqsave(&cp->lock, flags)) {
 				update_cache_slow(cp);
 				raw_spin_unlock_irqrestore(&cp->lock, flags);
 			}
+			/*
+			 * Someone else is probably updating the cache.
+			 * Just let it do its job and see if the cache
+			 * is updated in the next round.
+			 */
 			continue;
 		}
 		break;
 	}
 
 	/* 
-	 * cpudl_find is called on behalf
-	 * of a pull, so we don't care about
-	 * cp->current_dl[now_cached_cpu] value
+	 * cpudl_find has been called on behalf of a pull.
+	 * We don't care about cp->current_dl[now_cached_cpu]
+	 * value.
 	 */
 	if(!p)
 		return now_cached_cpu;
 
 	/*
-	 * if cpudl_find is called on behalf of
-	 * a push we must check the cpus_allowed
-	 * mask and the deadline
+	 * Otherwise, if cpudl_find has been called on behalf of
+	 * a push, we must check the cpus_allowed mask and the deadline.
 	 *
-	 * A read barrier is needed,
-	 * otherwise we may see 
-	 * cp->cached_cpu updated
-	 * with an old value in
-	 * cp->current_dl
+	 * We don't need a read barrier here, since we issued one at
+	 * the begining of the last round of the above loop.
 	 */
-	smp_rmb();
 	now_cached_dl = (u64)atomic64_read(&cp->current_dl[now_cached_cpu]);
+
 	/*
-	 * a parallel operation may have
-	 * changed the deadline value of
-	 * now_cached_cpu
+	 * A parallel operation may have changed the deadline value of
+	 * now_cached_cpu. Give up.
 	 */
-
-	/* FIXME: non è più opportuno riprovare???? */
-
 	if(now_cached_dl == NO_CACHED_DL)
 		return -1;
 	
@@ -151,54 +153,99 @@ void cpudl_set(struct cpudl *cp, int cpu, u64 dl, int is_valid)
 	unsigned long flags;
 
  	/*
- 	 * if is_valid is set we may have
- 	 * to update the cached CPU
+ 	 * We have to:
+ 	 *   - update the current_dl[cpu] field;
+	 *   - mark cpu as busy;
+	 *   - check if the cache needs an update.
  	 */
 	if (is_valid) {
-		/* remove item */
 		atomic64_set(&cp->current_dl[cpu], dl);
-		smp_wmb();
+		/*
+		 * Deadline of the new curr must be visible
+		 * before considering that cpu busy.
+		 * Paired with cpudl_find smp_rmb() inside
+		 * the while(true) loop.
+		 */
+		smp_mb__before_clear_bit();
+		cpumask_clear_cpu(cpu, cp->free_cpus);
+
 		while (1) {
+			/*
+			 * Paired with the last cache update
+			 */
 			smp_rmb();
 			now_cached_cpu = atomic_read(&cp->cached_cpu);
-			if(now_cached_cpu != NO_CACHED_CPU && 
-			  (now_cached_cpu != cpu || updated))
+			
+			/*
+			 * Fast-path: cache valid and pointing to someone
+			 * else than us, or it has just been updated.
+			 */
+			if (now_cached_cpu != NO_CACHED_CPU && 
+			    (now_cached_cpu != cpu || updated))
 				now_cached_dl = (u64)atomic64_read(
 					&cp->current_dl[now_cached_cpu]);
 			else {
-				if(!raw_spin_trylock_irqsave(&cp->lock, flags)) {
+				/*
+				 * Slow-path: update the cache grabbing locks.
+				 */
+				if (raw_spin_trylock_irqsave(&cp->lock, flags)) {
 					update_cache_slow(cp);
 					raw_spin_unlock_irqrestore(&cp->lock,
 								   flags);
 					updated = true;
 				}
+				/*
+				 * Someone else is probably updating the cache.
+				 * Just let it do its job and see if the cache
+				 * is updated in the next round.
+				 */
 				continue;
 			}
-				
-			if((now_cached_cpu != NO_CPU_DL &&
-				now_cached_dl != NO_CACHED_DL &&
-				cp->cmp_dl(dl, now_cached_dl)) ||
+			
+			if ((now_cached_cpu != NO_CPU_DL &&
+			     now_cached_dl != NO_CACHED_DL &&
+			     cp->cmp_dl(dl, now_cached_dl)) ||
 				atomic_cmpxchg(&cp->cached_cpu,
-						now_cached_cpu, cpu) == cpu)
+						now_cached_cpu, cpu) == cpu) {
+				/*
+				 * cmpxchg must be visible before proceeding further.
+				 */
+				smp_wmb();	
  				break;
+			}
 		}
 	} else {
-		atomic64_set(&cp->current_dl[cpu], NO_CACHED_DL);
-		smp_wmb();
 		/*
-		 * if is_valid is clear we may have
-		 * to clear the cached CPU
+		 * Dual of the operation above. In this case we set the
+		 * deadline to an invalid value only after having signaled
+		 * the corresponding cpu as free (and we need a barrier
+		 * among this operation). Otherwise another cpu can see
+		 * a cpu as busy, but with an invalid deadline.
+		 *
 		 */
+		cpumask_set_cpu(cpu, cp->free_cpus);
+		smp_wmb();
+		atomic64_set(&cp->current_dl[cpu], NO_CACHED_DL);
+
  		while(1) {
 			smp_rmb();
 			now_cached_cpu = atomic_read(&cp->cached_cpu);
+			/*
+			 * Follow the slow-path if the cache is invalid or
+			 * we were the cpu pointed by it.
+			 */
 			if((now_cached_cpu == NO_CACHED_CPU ||
 			    now_cached_cpu == cpu)) {
-				if(!raw_spin_trylock_irqsave(&cp->lock, flags)) {
+				if (raw_spin_trylock_irqsave(&cp->lock, flags)) {
 					update_cache_slow(cp);
 					raw_spin_unlock_irqrestore(&cp->lock,
 								   flags);
 				}
+				/*
+				 * Someone else is probably updating the cache.
+				 * Just let it do its job and see if the cache
+				 * is updated in the next round.
+				 */
 				continue;
 			}
 			break;
@@ -215,11 +262,6 @@ int cpudl_init(struct cpudl *cp, bool (*cmp_dl)(u64 a, u64 b))
 	int i;
 
 	raw_spin_lock_init(&cp->lock);
-	/*
-	 * FIXME:
-	 * non si dovrebbe partire con
-	 * NO_CPU_DL
-	 */
 	atomic_set(&cp->cached_cpu, NO_CACHED_CPU);
 	for(i = 0; i < NR_CPUS; i++)
 		atomic64_set(&cp->current_dl[i], NO_CACHED_DL);
@@ -236,6 +278,6 @@ int cpudl_init(struct cpudl *cp, bool (*cmp_dl)(u64 a, u64 b))
 void cpudl_cleanup(struct cpudl *cp)
 {
 	/*
-	 * nothing to do for the moment
+	 * no dynamic memory allocation means nothing to do
 	 */
 }

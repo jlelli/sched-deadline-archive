@@ -4,8 +4,11 @@
 #include <linux/cpumask.h>
 #include <linux/types.h>
 
+/* cache not valid */
 #define NO_CACHED_CPU		-1
+/* no cpu with deadline tasks */
 #define NO_CPU_DL		-2
+/* deadline not valid */
 #define NO_CACHED_DL		0
 
 struct cpudl {
