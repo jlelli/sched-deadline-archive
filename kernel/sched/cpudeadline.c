@@ -67,12 +67,12 @@ int cpudl_find(struct cpudl *cp, struct task_struct *p,
 			&p->cpus_allowed) && cpumask_and(later_mask,
 			later_mask, cpu_active_mask))
 		return cpumask_any(later_mask);
-
+	/*
+	 * Paired with is_valid path inside cpudl_set
+	 */
+	smp_rmb();
+	
 	while(true) {
-		/*
-		 * Paired with the last cache update
-		 */
-		smp_rmb();
 		now_cached_cpu = atomic_read(&cp->cached_cpu);
 
 		/*
@@ -112,9 +112,10 @@ int cpudl_find(struct cpudl *cp, struct task_struct *p,
 	 * Otherwise, if cpudl_find has been called on behalf of
 	 * a push, we must check the cpus_allowed mask and the deadline.
 	 *
-	 * We don't need a read barrier here, since we issued one at
-	 * the begining of the last round of the above loop.
+	 * Pairing with a slow path on cpudl_set (lock/unlock) or with
+	 * the cmpxchg implicit barriers.
 	 */
+	smp_rmb();
 	now_cached_dl = (u64)atomic64_read(&cp->current_dl[now_cached_cpu]);
 
 	/*
@@ -170,10 +171,6 @@ void cpudl_set(struct cpudl *cp, int cpu, u64 dl, int is_valid)
 		cpumask_clear_cpu(cpu, cp->free_cpus);
 
 		while (1) {
-			/*
-			 * Paired with the last cache update
-			 */
-			smp_rmb();
 			now_cached_cpu = atomic_read(&cp->cached_cpu);
 			
 			/*
@@ -181,10 +178,16 @@ void cpudl_set(struct cpudl *cp, int cpu, u64 dl, int is_valid)
 			 * else than us, or it has just been updated.
 			 */
 			if (now_cached_cpu != NO_CACHED_CPU && 
-			    (now_cached_cpu != cpu || updated))
+			    (now_cached_cpu != cpu || updated)) {
+			    	/*
+			 	 * Pairing with a slow path on cpudl_set
+			 	 * (lock/unlock) or with the cmpxchg implicit
+			 	 * barriers.
+			 	 */
+				smp_rmb();
 				now_cached_dl = (u64)atomic64_read(
 					&cp->current_dl[now_cached_cpu]);
-			else {
+			} else {
 				/*
 				 * Slow-path: update the cache grabbing locks.
 				 */
@@ -208,9 +211,9 @@ void cpudl_set(struct cpudl *cp, int cpu, u64 dl, int is_valid)
 				atomic_cmpxchg(&cp->cached_cpu,
 						now_cached_cpu, cpu) == cpu) {
 				/*
-				 * cmpxchg must be visible before proceeding further.
-				 */
-				smp_wmb();	
+				 * cmpxchg must be visible before proceeding further,
+				 * but it implies a barrier.
+				 */	
  				break;
 			}
 		}
@@ -227,8 +230,7 @@ void cpudl_set(struct cpudl *cp, int cpu, u64 dl, int is_valid)
 		smp_wmb();
 		atomic64_set(&cp->current_dl[cpu], NO_CACHED_DL);
 
- 		while(1) {
-			smp_rmb();
+ 		while (1) {
 			now_cached_cpu = atomic_read(&cp->cached_cpu);
 			/*
 			 * Follow the slow-path if the cache is invalid or
