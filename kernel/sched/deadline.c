@@ -1222,16 +1222,20 @@ static int find_later_rq(struct task_struct *task)
 			 * cheaper than migrating.
 			 */
 			if (this_cpu != -1 &&
-			    cpumask_test_cpu(this_cpu, sched_domain_span(sd)))
+			    cpumask_test_cpu(this_cpu, sched_domain_span(sd))) {
+				rcu_read_unlock();
 				return this_cpu;
+			}
 
 			/*
 			 * Last chance: if best_cpu is valid and is
 			 * in the mask, that becomes our choice.
 			 */
 			if (best_cpu < nr_cpu_ids &&
-			    cpumask_test_cpu(best_cpu, sched_domain_span(sd)))
+			    cpumask_test_cpu(best_cpu, sched_domain_span(sd))) {
+				rcu_read_unlock();
 				return best_cpu;
+			}
 		}
 	}
 	rcu_read_unlock();
