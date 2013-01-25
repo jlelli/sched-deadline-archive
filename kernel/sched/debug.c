@@ -248,11 +248,17 @@ void print_rt_rq(struct seq_file *m, int cpu, struct rt_rq *rt_rq)
 	P(nr_retry_push);
 	P(nr_pulled_here);
 	P(push_cycles);
-	P(push_find_cycles);
-	P(push_set_cycles);
 	P(nr_push);
+	P(push_find_cycles);
+	P(nr_push_find);
+	P(push_set_cycles);
+	P(nr_push_set);
 	P(pull_cycles);
 	P(nr_pull);
+	P(pull_find_cycles);
+	P(nr_pull_find);
+	P(pull_set_cycles);
+	P(nr_pull_set);
 #endif
 
 #undef PN
@@ -303,13 +309,17 @@ void print_dl_rq(struct seq_file *m, int cpu, struct dl_rq *dl_rq)
 	P(nr_retry_push);
 	P(nr_pulled_here);
 	P(push_cycles);
-	P(push_find_cycles);
-	P(push_set_cycles);
 	P(nr_push);
+	P(push_find_cycles);
+	P(nr_push_find);
+	P(push_set_cycles);
+	P(nr_push_set);
 	P(pull_cycles);
-	P(pull_find_cycles);
-	P(pull_set_cycles);
 	P(nr_pull);
+	P(pull_find_cycles);
+	P(nr_pull_find);
+	P(pull_set_cycles);
+	P(nr_pull_set);
 #endif
 
 #undef PN

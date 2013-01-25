@@ -659,10 +659,12 @@ static void inc_dl_deadline(struct dl_rq *dl_rq, u64 deadline)
 		x = get_cycles();
 		cpudl_set(&rq->rd->push_cpudl, rq->cpu, deadline, 1);
 		schedstat_add(&rq->dl, push_set_cycles, get_cycles() - x);
+		schedstat_inc(&rq->dl, nr_push_set);
 		y = get_cycles();
 		cpudl_set(&rq->rd->pull_cpudl, rq->cpu, dl_rq->earliest_dl.next,
 			dl_rq->earliest_dl.next == 0 ? 0 : 1);
 		schedstat_add(&rq->dl, pull_set_cycles, get_cycles() - y);
+		schedstat_inc(&rq->dl, nr_pull_set);
 	} else if (dl_rq->earliest_dl.next == 0 ||
 		   dl_time_before(deadline, dl_rq->earliest_dl.next)) {
 		/*
@@ -676,6 +678,7 @@ static void inc_dl_deadline(struct dl_rq *dl_rq, u64 deadline)
 		cpudl_set(&rq->rd->pull_cpudl, rq->cpu, dl_rq->earliest_dl.next,
 			dl_rq->earliest_dl.next == 0 ? 0 : 1);
 		schedstat_add(&rq->dl, pull_set_cycles, get_cycles() - y);
+		schedstat_inc(&rq->dl, nr_pull_set);
 	}
 }
 
@@ -694,9 +697,11 @@ static void dec_dl_deadline(struct dl_rq *dl_rq, u64 deadline)
 		x = get_cycles();
 		cpudl_set(&rq->rd->push_cpudl, rq->cpu, 0, 0);
 		schedstat_add(&rq->dl, push_set_cycles, get_cycles() - x);
+		schedstat_inc(&rq->dl, nr_push_set);
 		y = get_cycles();
 		cpudl_set(&rq->rd->pull_cpudl, rq->cpu, 0, 0);
 		schedstat_add(&rq->dl, pull_set_cycles, get_cycles() - y);
+		schedstat_inc(&rq->dl, nr_pull_set);
 	} else {
 		struct rb_node *leftmost = dl_rq->rb_leftmost;
 		struct sched_dl_entity *entry;
@@ -707,10 +712,12 @@ static void dec_dl_deadline(struct dl_rq *dl_rq, u64 deadline)
 		x = get_cycles();
 		cpudl_set(&rq->rd->push_cpudl, rq->cpu, entry->deadline, 1);
 		schedstat_add(&rq->dl, push_set_cycles, get_cycles() - x);
+		schedstat_inc(&rq->dl, nr_push_set);
 		y = get_cycles();
 		cpudl_set(&rq->rd->pull_cpudl, rq->cpu, dl_rq->earliest_dl.next,
 			dl_rq->earliest_dl.next == 0 ? 0 : 1);
 		schedstat_add(&rq->dl, pull_set_cycles, get_cycles() - y);
+		schedstat_inc(&rq->dl, nr_pull_set);
 	}
 }
 
@@ -956,12 +963,16 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 	x = get_cycles();
 	if (rq->curr->nr_cpus_allowed == 1 ||
 	    cpudl_find(&rq->rd->push_cpudl, rq->curr, NULL) == -1) {
-		if (rq->curr->nr_cpus_allowed != 1)
+		if (rq->curr->nr_cpus_allowed != 1){
 			schedstat_add(&rq->dl, push_find_cycles, get_cycles() - x);
+			schedstat_inc(&rq->dl, nr_push_find);
+		}
 		return;
 	}
-	if (rq->curr->nr_cpus_allowed != 1)
+	if (rq->curr->nr_cpus_allowed != 1) {
 		schedstat_add(&rq->dl, push_find_cycles, get_cycles() - x);
+		schedstat_inc(&rq->dl, nr_push_find);
+	}
 
 	/*
 	 * p is migratable, so let's not schedule it and
@@ -971,10 +982,13 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 	if (p->nr_cpus_allowed != 1 &&
 	    cpudl_find(&rq->rd->push_cpudl, p, NULL) != -1) {
 		schedstat_add(&rq->dl, push_find_cycles, get_cycles() - x);
+		schedstat_inc(&rq->dl, nr_push_find);
 		return;
 	}
-	if (p->nr_cpus_allowed != 1)
+	if (p->nr_cpus_allowed != 1) {
 		schedstat_add(&rq->dl, push_find_cycles, get_cycles() - x);
+		schedstat_inc(&rq->dl, nr_push_find);
+	}
 
 	resched_task(rq->curr);
 }
@@ -1188,6 +1202,7 @@ static int find_later_rq(struct task_struct *task)
 	best_cpu = cpudl_find(&task_rq(task)->rd->push_cpudl,
 			task, later_mask);
 	schedstat_add(&rq->dl, push_find_cycles, get_cycles() - x);
+	schedstat_inc(&rq->dl, nr_push_find);
 	if (best_cpu == -1)
 		return -1;
 
@@ -1432,6 +1447,7 @@ static int pull_dl_task(struct rq *this_rq)
 	y = get_cycles();
 	cpu = cpudl_find(&this_rq->rd->pull_cpudl, NULL, NULL);
 	schedstat_add(&this_rq->dl, pull_find_cycles, get_cycles() - y);
+	schedstat_inc(&this_rq->dl, nr_pull_find);
 
 	if(cpu == -1 || this_cpu == cpu)
 		goto out;
@@ -1573,11 +1589,13 @@ static void rq_online_dl(struct rq *rq)
 		cpudl_set(&rq->rd->push_cpudl, rq->cpu,
 			rq->dl.earliest_dl.curr, 1);
 		schedstat_add(&rq->dl, push_set_cycles, get_cycles() - x);
+		schedstat_inc(&rq->dl, nr_push_set);
 		y = get_cycles();
 		cpudl_set(&rq->rd->pull_cpudl, rq->cpu,
 			rq->dl.earliest_dl.next,
 			rq->dl.earliest_dl.next == 0 ? 0 : 1);
 		schedstat_add(&rq->dl, pull_set_cycles, get_cycles() - y);
+		schedstat_inc(&rq->dl, nr_pull_set);
 	}
 }
 
@@ -1592,9 +1610,11 @@ static void rq_offline_dl(struct rq *rq)
 	x = get_cycles();
 	cpudl_set(&rq->rd->push_cpudl, rq->cpu, 0, 0);
 	schedstat_add(&rq->dl, push_set_cycles, get_cycles() - x);
+	schedstat_inc(&rq->dl, nr_push_set);
 	y = get_cycles();
 	cpudl_set(&rq->rd->pull_cpudl, rq->cpu, 0, 0);
 	schedstat_add(&rq->dl, pull_set_cycles, get_cycles() - y);
+	schedstat_inc(&rq->dl, nr_pull_set);
 }
 
 void init_sched_dl_class(void)

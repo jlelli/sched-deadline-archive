@@ -388,8 +388,10 @@ struct rt_rq {
 
 	u64 enqueue_cycles, dequeue_cycles, schedule_cycles;
 	unsigned long nr_enqueue, nr_dequeue, nr_schedule;
-	u64 push_cycles, pull_cycles, push_find_cycles, push_set_cycles;
-	unsigned long nr_push, nr_pull;
+	u64 push_cycles, pull_cycles, push_find_cycles, push_set_cycles,
+	    pull_find_cycles, pull_set_cycles;
+	unsigned long nr_push, nr_pull, nr_push_find, nr_push_set,
+		      nr_pull_find, nr_pull_set;
 #endif
 
 #ifdef CONFIG_RT_GROUP_SCHED
@@ -419,7 +421,8 @@ struct dl_rq {
 	unsigned long nr_enqueue, nr_dequeue, nr_schedule;
 	u64 push_cycles, pull_cycles, push_find_cycles, push_set_cycles,
 	    pull_find_cycles, pull_set_cycles;
-	unsigned long nr_push, nr_pull;
+	unsigned long nr_push, nr_pull, nr_push_find, nr_push_set,
+		      nr_pull_find, nr_pull_set;
 #endif
 
 #ifdef CONFIG_SMP
