@@ -967,6 +967,7 @@ inc_rt_prio_smp(struct rt_rq *rt_rq, int prio, int prev_prio)
 		x = get_cycles();
 		cpupri_set(&rq->rd->cpupri, rq->cpu, prio);
 		schedstat_add(&rq->rt, push_set_cycles, get_cycles() - x);
+		schedstat_inc(&rq->rt, nr_push_set);
 	}
 }
 
@@ -980,6 +981,7 @@ dec_rt_prio_smp(struct rt_rq *rt_rq, int prio, int prev_prio)
 		x = get_cycles();
 		cpupri_set(&rq->rd->cpupri, rq->cpu, rt_rq->highest_prio.curr);
 		schedstat_add(&rq->rt, push_set_cycles, get_cycles() - x);
+		schedstat_inc(&rq->rt, nr_push_set);
 	}
 }
 
@@ -1321,16 +1323,20 @@ static void check_preempt_equal_prio(struct rq *rq, struct task_struct *p)
 	if (p->nr_cpus_allowed != 1
 	    && cpupri_find(&rq->rd->cpupri, p, NULL)) {
 		schedstat_add(&rq->rt, push_find_cycles, get_cycles() - x);
+		schedstat_inc(&rq->rt, nr_push_find);
 		return;
 	}
 	schedstat_add(&rq->rt, push_find_cycles, get_cycles() - x);
+	schedstat_inc(&rq->rt, nr_push_find);
 
 	x = get_cycles();
 	if (!cpupri_find(&rq->rd->cpupri, rq->curr, NULL)) {
 		schedstat_add(&rq->rt, push_find_cycles, get_cycles() - x);
+		schedstat_inc(&rq->rt, nr_push_find);
 		return;
 	}
 	schedstat_add(&rq->rt, push_find_cycles, get_cycles() - x);
+	schedstat_inc(&rq->rt, nr_push_find);
 
 	/*
 	 * There appears to be other cpus that can accept
@@ -1517,9 +1523,11 @@ static int find_lowest_rq(struct task_struct *task)
 	x = get_cycles();
 	if (!cpupri_find(&task_rq(task)->rd->cpupri, task, lowest_mask)) {
 		schedstat_add(&task_rq(task)->rt, push_find_cycles, get_cycles() - x);
+		schedstat_inc(&task_rq(task)->rt, nr_push_find);
 		return -1; /* No targets found */
 	}
 	schedstat_add(&task_rq(task)->rt, push_find_cycles, get_cycles() - x);
+	schedstat_inc(&task_rq(task)->rt, nr_push_find);
 
 	/*
 	 * At this point we have built a mask of cpus representing the
@@ -1911,6 +1919,7 @@ static void rq_online_rt(struct rq *rq)
 	x = get_cycles();
 	cpupri_set(&rq->rd->cpupri, rq->cpu, rq->rt.highest_prio.curr);
 	schedstat_add(&rq->rt, push_set_cycles, get_cycles() - x);
+	schedstat_inc(&rq->rt, nr_push_set);
 }
 
 /* Assumes rq->lock is held */
@@ -1926,6 +1935,7 @@ static void rq_offline_rt(struct rq *rq)
 	x = get_cycles();
 	cpupri_set(&rq->rd->cpupri, rq->cpu, CPUPRI_INVALID);
 	schedstat_add(&rq->rt, push_set_cycles, get_cycles() - x);
+	schedstat_inc(&rq->rt, nr_push_set);
 }
 
 /*
