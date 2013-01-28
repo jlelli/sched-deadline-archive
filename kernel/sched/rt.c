@@ -1627,6 +1627,8 @@ static struct rq *find_lock_lowest_rq(struct task_struct *task, struct rq *rq)
 
 		/* try again */
 		double_unlock_balance(rq, lowest_rq);
+		if (tries == 2)
+			schedstat_inc(&rq->rt, nr_push_max_tries);
 		lowest_rq = NULL;
 	}
 
@@ -1835,6 +1837,8 @@ skip:
 out:
 	schedstat_add(&this_rq->rt, pull_cycles, get_cycles() - x);
 	schedstat_inc(&this_rq->rt, nr_pull);
+	if (ret == 0)
+		schedstat_inc(&this_rq->rt, nr_pull_none);
 
 	return ret;
 }

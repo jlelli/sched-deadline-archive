@@ -1309,6 +1309,8 @@ static struct rq *find_lock_later_rq(struct task_struct *task, struct rq *rq)
 
 		/* Otherwise we try again. */
 		double_unlock_balance(rq, later_rq);
+		if (tries == 2)
+			schedstat_inc(&rq->dl, nr_push_max_tries);
 		later_rq = NULL;
 	}
 
@@ -1500,6 +1502,8 @@ unlock:
 out:
 	schedstat_add(&this_rq->dl, pull_cycles, get_cycles() - x);
 	schedstat_inc(&this_rq->dl, nr_pull);
+	if (ret == 0)
+		schedstat_inc(&this_rq->dl, nr_pull_none);
 
 	return ret;
 }

@@ -246,6 +246,7 @@ void print_rt_rq(struct seq_file *m, int cpu, struct rt_rq *rt_rq)
 #ifdef CONFIG_SMP
 	P(nr_pushed_away);
 	P(nr_retry_push);
+	P(nr_push_max_tries);
 	P(nr_pulled_here);
 	P(push_cycles);
 	P(nr_push);
@@ -255,6 +256,7 @@ void print_rt_rq(struct seq_file *m, int cpu, struct rt_rq *rt_rq)
 	P(nr_push_set);
 	P(pull_cycles);
 	P(nr_pull);
+	P(nr_pull_none);
 	P(pull_find_cycles);
 	P(nr_pull_find);
 	P(pull_set_cycles);
@@ -307,6 +309,7 @@ void print_dl_rq(struct seq_file *m, int cpu, struct dl_rq *dl_rq)
 #ifdef CONFIG_SMP
 	P(nr_pushed_away);
 	P(nr_retry_push);
+	P(nr_push_max_tries);
 	P(nr_pulled_here);
 	P(push_cycles);
 	P(nr_push);
@@ -316,6 +319,7 @@ void print_dl_rq(struct seq_file *m, int cpu, struct dl_rq *dl_rq)
 	P(nr_push_set);
 	P(pull_cycles);
 	P(nr_pull);
+	P(nr_pull_none);
 	P(pull_find_cycles);
 	P(nr_pull_find);
 	P(pull_set_cycles);
