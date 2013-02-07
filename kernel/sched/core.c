@@ -6825,7 +6825,7 @@ void __init sched_init(void)
 	alloc_size += 2 * nr_cpu_ids * sizeof(void **);
 #endif
 #ifdef CONFIG_RT_GROUP_SCHED
-	alloc_size += 2 * nr_cpu_ids * sizeof(void **);
+	alloc_size += nr_cpu_ids * sizeof(void **);
 #endif
 #ifdef CONFIG_CPUMASK_OFFSTACK
 	alloc_size += num_possible_cpus() * cpumask_size();
@@ -6842,9 +6842,6 @@ void __init sched_init(void)
 
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 #ifdef CONFIG_RT_GROUP_SCHED
-		root_task_group.rt_se = (struct sched_rt_entity **)ptr;
-		ptr += nr_cpu_ids * sizeof(void **);
-
 		root_task_group.rt_rq = (struct rt_rq **)ptr;
 		ptr += nr_cpu_ids * sizeof(void **);
 
@@ -6866,6 +6863,9 @@ void __init sched_init(void)
 
 #ifdef CONFIG_RT_GROUP_SCHED
 	init_rt_bandwidth(&root_task_group.rt_bandwidth,
+			global_rt_period(), global_rt_runtime());
+
+	init_rt_bandwidth(&root_task_group.rt_task_bandwidth,
 			global_rt_period(), global_rt_runtime());
 #endif /* CONFIG_RT_GROUP_SCHED */
 
@@ -6892,7 +6892,7 @@ void __init sched_init(void)
 		rq->calc_load_active = 0;
 		rq->calc_load_update = jiffies + LOAD_FREQ;
 		init_cfs_rq(&rq->cfs);
-		init_rt_rq(&rq->rt, rq);
+		init_rt_root_rq(&rq->rt, rq);
 #ifdef CONFIG_FAIR_GROUP_SCHED
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
 		INIT_LIST_HEAD(&rq->leaf_cfs_rq_list);
@@ -6919,10 +6919,9 @@ void __init sched_init(void)
 		init_tg_cfs_entry(&root_task_group, &rq->cfs, NULL, i, NULL);
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 
-		rq->rt.rt_runtime = def_rt_bandwidth.rt_runtime;
 #ifdef CONFIG_RT_GROUP_SCHED
 		INIT_LIST_HEAD(&rq->leaf_rt_rq_list);
-		init_tg_rt_entry(&root_task_group, &rq->rt, NULL, i, NULL);
+		init_tg_rt_entry(&root_task_group, &rq->rt.rt_rq, i);
 #endif
 
 		for (j = 0; j < CPU_LOAD_IDX_MAX; j++)
@@ -7281,7 +7280,7 @@ static inline int tg_has_rt_tasks(struct task_group *tg)
 	struct task_struct *g, *p;
 
 	do_each_thread(g, p) {
-		if (rt_task(p) && task_rq(p)->rt.tg == tg)
+		if (rt_task(p) && rt_rq_of_se(&p->rt)->tg == tg)
 			return 1;
 	} while_each_thread(g, p);
 
@@ -7292,27 +7291,65 @@ struct rt_schedulable_data {
 	struct task_group *tg;
 	u64 rt_period;
 	u64 rt_runtime;
+	int rt_task_data;
 };
+
+static inline void rt_tg_parameters(struct task_group *tg, int task_data,
+				    u64 *period, u64 *runtime)
+{
+	struct rt_bandwidth *rt_b = task_data ? &tg->rt_task_bandwidth :
+				    &tg->rt_bandwidth;
+
+	*period = ktime_to_ns(rt_b->rt_period);
+	*runtime = rt_b->rt_runtime;
+}
+
+static unsigned long tg_utilization(struct task_group *tg,
+				    struct rt_schedulable_data *d)
+{
+	struct task_group *child;
+	unsigned long sum;
+	u64 period, runtime;
+
+	if (d && tg == d->tg && d->rt_task_data) {
+		period = d->rt_period;
+		runtime = d->rt_runtime;
+	} else
+		rt_tg_parameters(tg, 1, &period, &runtime);
+
+	/* Task utilization. */
+	sum = to_ratio(period, runtime);
+
+	/* Children utilization. */
+	list_for_each_entry_rcu(child, &tg->children, siblings) {
+		if (d && child == d->tg && !d->rt_task_data) {
+			period = d->rt_period;
+			runtime = d->rt_runtime;
+		} else
+			rt_tg_parameters(child, 0, &period, &runtime);
+
+		sum += to_ratio(period, runtime);
+	}
+
+	return sum;
+}
 
 static int tg_rt_schedulable(struct task_group *tg, void *data)
 {
 	struct rt_schedulable_data *d = data;
-	struct task_group *child;
-	unsigned long total, sum = 0;
+	unsigned long total, sum;
 	u64 period, runtime;
 
-	period = ktime_to_ns(tg->rt_bandwidth.rt_period);
-	runtime = tg->rt_bandwidth.rt_runtime;
-
-	if (tg == d->tg) {
+	if (tg == d->tg && !d->rt_task_data) {
 		period = d->rt_period;
 		runtime = d->rt_runtime;
-	}
+	} else
+		rt_tg_parameters(tg, 0, &period, &runtime);
 
 	/*
 	 * Cannot have more runtime than the period.
 	 */
-	if (runtime > period && runtime != RUNTIME_INF)
+	if (runtime > period)
 		return -EINVAL;
 
 	/*
@@ -7332,17 +7369,7 @@ static int tg_rt_schedulable(struct task_group *tg, void *data)
 	/*
 	 * The sum of our children's runtime should not exceed our own.
 	 */
-	list_for_each_entry_rcu(child, &tg->children, siblings) {
-		period = ktime_to_ns(child->rt_bandwidth.rt_period);
-		runtime = child->rt_bandwidth.rt_runtime;
-
-		if (child == d->tg) {
-			period = d->rt_period;
-			runtime = d->rt_runtime;
-		}
-
-		sum += to_ratio(period, runtime);
-	}
+	sum = tg_utilization(tg, d);
 
 	if (sum > total)
 		return -EINVAL;
@@ -7350,7 +7377,8 @@ static int tg_rt_schedulable(struct task_group *tg, void *data)
 	return 0;
 }
 
-static int __rt_schedulable(struct task_group *tg, u64 period, u64 runtime)
+static int __rt_schedulable(struct task_group *tg, u64 period,
+			u64 runtime, int task_data)
 {
 	int ret;
 
@@ -7358,6 +7386,7 @@ static int __rt_schedulable(struct task_group *tg, u64 period, u64 runtime)
 		.tg = tg,
 		.rt_period = period,
 		.rt_runtime = runtime,
+		.rt_task_data = task_data,
 	};
 
 	rcu_read_lock();
@@ -7367,29 +7396,38 @@ static int __rt_schedulable(struct task_group *tg, u64 period, u64 runtime)
 	return ret;
 }
 
-static int tg_set_rt_bandwidth(struct task_group *tg,
+static int tg_set_rt_bandwidth(struct task_group *tg, int task_data,
 		u64 rt_period, u64 rt_runtime)
 {
 	int i, err = 0;
 
 	mutex_lock(&rt_constraints_mutex);
 	read_lock(&tasklist_lock);
-	err = __rt_schedulable(tg, rt_period, rt_runtime);
+	err = __rt_schedulable(tg, rt_period, rt_runtime, task_data);
 	if (err)
 		goto unlock;
 
-	raw_spin_lock_irq(&tg->rt_bandwidth.rt_runtime_lock);
-	tg->rt_bandwidth.rt_period = ns_to_ktime(rt_period);
-	tg->rt_bandwidth.rt_runtime = rt_runtime;
+	if (task_data) {
+		raw_spin_lock_irq(&tg->rt_task_bandwidth.rt_runtime_lock);
+		tg->rt_task_bandwidth.rt_period = ns_to_ktime(rt_period);
+		tg->rt_task_bandwidth.rt_runtime = rt_runtime;
 
-	for_each_possible_cpu(i) {
-		struct rt_rq *rt_rq = tg->rt_rq[i];
+		for_each_possible_cpu(i) {
+			struct rt_rq *rt_rq = tg->rt_rq[i];
 
-		raw_spin_lock(&rt_rq->rt_runtime_lock);
-		rt_rq->rt_runtime = rt_runtime;
-		raw_spin_unlock(&rt_rq->rt_runtime_lock);
+			raw_spin_lock(&rt_rq->rt_runtime_lock);
+			rt_rq->rt_runtime = rt_runtime;
+			rt_rq->rt_period = ns_to_ktime(rt_period);
+			raw_spin_unlock(&rt_rq->rt_runtime_lock);
+		}
+		raw_spin_unlock_irq(&tg->rt_task_bandwidth.rt_runtime_lock);
+	} else {
+		raw_spin_lock_irq(&tg->rt_bandwidth.rt_runtime_lock);
+		tg->rt_bandwidth.rt_period = ns_to_ktime(rt_period);
+		tg->rt_bandwidth.rt_runtime = rt_runtime;
+		raw_spin_unlock_irq(&tg->rt_bandwidth.rt_runtime_lock);
 	}
-	raw_spin_unlock_irq(&tg->rt_bandwidth.rt_runtime_lock);
+
 unlock:
 	read_unlock(&tasklist_lock);
 	mutex_unlock(&rt_constraints_mutex);
@@ -7397,48 +7435,57 @@ unlock:
 	return err;
 }
 
-int sched_group_set_rt_runtime(struct task_group *tg, long rt_runtime_us)
+int sched_group_set_rt_runtime(struct task_group *tg, int task_data,
+			       long rt_runtime_us)
 {
 	u64 rt_runtime, rt_period;
 
-	rt_period = ktime_to_ns(tg->rt_bandwidth.rt_period);
+	rt_period = task_data ? ktime_to_ns(tg->rt_task_bandwidth.rt_period) :
+		    ktime_to_ns(tg->rt_bandwidth.rt_period);
 	rt_runtime = (u64)rt_runtime_us * NSEC_PER_USEC;
 	if (rt_runtime_us < 0)
 		rt_runtime = RUNTIME_INF;
 
-	return tg_set_rt_bandwidth(tg, rt_period, rt_runtime);
+	return tg_set_rt_bandwidth(tg, task_data, rt_period, rt_runtime);
 }
 
-long sched_group_rt_runtime(struct task_group *tg)
+long sched_group_rt_runtime(struct task_group *tg, int task_data)
 {
 	u64 rt_runtime_us;
 
-	if (tg->rt_bandwidth.rt_runtime == RUNTIME_INF)
+	rt_runtime_us = task_data ? tg->rt_task_bandwidth.rt_runtime :
+			tg->rt_bandwidth.rt_runtime;
+
+	if (rt_runtime_us == RUNTIME_INF)
 		return -1;
 
-	rt_runtime_us = tg->rt_bandwidth.rt_runtime;
 	do_div(rt_runtime_us, NSEC_PER_USEC);
 	return rt_runtime_us;
 }
 
-int sched_group_set_rt_period(struct task_group *tg, long rt_period_us)
+int sched_group_set_rt_period(struct task_group *tg, int task_data,
+			      long rt_period_us)
 {
 	u64 rt_runtime, rt_period;
 
 	rt_period = (u64)rt_period_us * NSEC_PER_USEC;
-	rt_runtime = tg->rt_bandwidth.rt_runtime;
+	rt_runtime = task_data ? tg->rt_task_bandwidth.rt_runtime :
+		     tg->rt_bandwidth.rt_runtime;
 
 	if (rt_period == 0)
 		return -EINVAL;
 
-	return tg_set_rt_bandwidth(tg, rt_period, rt_runtime);
+	return tg_set_rt_bandwidth(tg, task_data, rt_period, rt_runtime);
 }
 
-long sched_group_rt_period(struct task_group *tg)
+long sched_group_rt_period(struct task_group *tg, int task_data)
 {
 	u64 rt_period_us;
 
-	rt_period_us = ktime_to_ns(tg->rt_bandwidth.rt_period);
+	rt_period_us = task_data ?
+		       ktime_to_ns(tg->rt_task_bandwidth.rt_period) :
+		       ktime_to_ns(tg->rt_bandwidth.rt_period);
+
 	do_div(rt_period_us, NSEC_PER_USEC);
 	return rt_period_us;
 }
@@ -7462,7 +7509,7 @@ static int sched_rt_global_constraints(void)
 
 	mutex_lock(&rt_constraints_mutex);
 	read_lock(&tasklist_lock);
-	ret = __rt_schedulable(NULL, 0, 0);
+	ret = __rt_schedulable(NULL, 0, 0, 0);
 	read_unlock(&tasklist_lock);
 	mutex_unlock(&rt_constraints_mutex);
 
@@ -7471,11 +7518,22 @@ static int sched_rt_global_constraints(void)
 
 int sched_rt_can_attach(struct task_group *tg, struct task_struct *tsk)
 {
-	/* Don't accept realtime tasks when there is no way for them to run */
-	if (rt_task(tsk) && tg->rt_bandwidth.rt_runtime == 0)
-		return 0;
+	int ret = 1;
 
-	return 1;
+	mutex_lock(&rt_constraints_mutex);
+
+	/*
+	 * Don't accept realtime tasks when there is no way for them to
+	 * run; check the rt_bandwidth of the group under the
+	 * rt_constraints_mutex to prevent the task from being attached
+	 * before a reset in progress is completed.
+	 */
+	if (rt_task(tsk) && tg->rt_task_bandwidth.rt_runtime == 0)
+		ret = 0;
+
+	mutex_unlock(&rt_constraints_mutex);
+
+	return ret;
 }
 
 #else /* !CONFIG_RT_GROUP_SCHED */
@@ -7863,23 +7921,46 @@ static int cpu_stats_show(struct cgroup *cgrp, struct cftype *cft,
 static int cpu_rt_runtime_write(struct cgroup *cgrp, struct cftype *cft,
 				s64 val)
 {
-	return sched_group_set_rt_runtime(cgroup_tg(cgrp), val);
+	return sched_group_set_rt_runtime(cgroup_tg(cgrp), 0, val);
 }
 
 static s64 cpu_rt_runtime_read(struct cgroup *cgrp, struct cftype *cft)
 {
-	return sched_group_rt_runtime(cgroup_tg(cgrp));
+	return sched_group_rt_runtime(cgroup_tg(cgrp), 0);
 }
 
 static int cpu_rt_period_write_uint(struct cgroup *cgrp, struct cftype *cftype,
 		u64 rt_period_us)
 {
-	return sched_group_set_rt_period(cgroup_tg(cgrp), rt_period_us);
+	return sched_group_set_rt_period(cgroup_tg(cgrp), 0, rt_period_us);
 }
 
 static u64 cpu_rt_period_read_uint(struct cgroup *cgrp, struct cftype *cft)
 {
-	return sched_group_rt_period(cgroup_tg(cgrp));
+	return sched_group_rt_period(cgroup_tg(cgrp), 0);
+}
+
+static int cpu_rt_task_runtime_write(struct cgroup *cgrp, struct cftype *cft,
+				     s64 val)
+{
+	return sched_group_set_rt_runtime(cgroup_tg(cgrp), 1, val);
+}
+
+static s64 cpu_rt_task_runtime_read(struct cgroup *cgrp, struct cftype *cft)
+{
+	return sched_group_rt_runtime(cgroup_tg(cgrp), 1);
+}
+
+static int cpu_rt_task_period_write_uint(struct cgroup *cgrp,
+					 struct cftype *cftype,
+					 u64 rt_period_us)
+{
+	return sched_group_set_rt_period(cgroup_tg(cgrp), 1, rt_period_us);
+}
+
+static u64 cpu_rt_task_period_read_uint(struct cgroup *cgrp, struct cftype *cft)
+{
+	return sched_group_rt_period(cgroup_tg(cgrp), 1);
 }
 #endif /* CONFIG_RT_GROUP_SCHED */
 
@@ -7917,6 +7998,16 @@ static struct cftype cpu_files[] = {
 		.name = "rt_period_us",
 		.read_u64 = cpu_rt_period_read_uint,
 		.write_u64 = cpu_rt_period_write_uint,
+	},
+	{
+		.name = "rt_task_runtime_us",
+		.read_s64 = cpu_rt_task_runtime_read,
+		.write_s64 = cpu_rt_task_runtime_write,
+	},
+	{
+		.name = "rt_task_period_us",
+		.read_u64 = cpu_rt_task_period_read_uint,
+		.write_u64 = cpu_rt_task_period_write_uint,
 	},
 #endif
 	{ }	/* terminate */

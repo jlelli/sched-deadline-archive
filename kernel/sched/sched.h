@@ -55,6 +55,8 @@ static inline int task_has_rt_policy(struct task_struct *p)
 	return rt_policy(p->policy);
 }
 
+extern struct rt_rq *rt_rq_of_se(struct sched_rt_entity *rt_se);
+
 /*
  * This is the priority-queue data structure of the RT scheduling class:
  */
@@ -68,7 +70,6 @@ struct rt_bandwidth {
 	raw_spinlock_t		rt_runtime_lock;
 	ktime_t			rt_period;
 	u64			rt_runtime;
-	struct hrtimer		rt_period_timer;
 };
 
 extern struct mutex sched_domains_mutex;
@@ -117,10 +118,13 @@ struct task_group {
 #endif
 
 #ifdef CONFIG_RT_GROUP_SCHED
-	struct sched_rt_entity **rt_se;
 	struct rt_rq **rt_rq;
 
+	/* CPU bandwidth reserved to this group (tasks + child groups). */
 	struct rt_bandwidth rt_bandwidth;
+
+	/* CPU bandwidth reserved to the tasks in this group. */
+	struct rt_bandwidth rt_task_bandwidth;
 #endif
 
 	struct rcu_head rcu;
@@ -190,9 +194,7 @@ extern void unthrottle_cfs_rq(struct cfs_rq *cfs_rq);
 
 extern void free_rt_sched_group(struct task_group *tg);
 extern int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent);
-extern void init_tg_rt_entry(struct task_group *tg, struct rt_rq *rt_rq,
-		struct sched_rt_entity *rt_se, int cpu,
-		struct sched_rt_entity *parent);
+extern void init_tg_rt_entry(struct task_group *tg, struct rt_rq *rt_rq, int cpu);
 
 #else /* CONFIG_CGROUP_SCHED */
 
@@ -293,6 +295,39 @@ static inline int rt_bandwidth_enabled(void)
 struct rt_rq {
 	struct rt_prio_array active;
 	unsigned int rt_nr_running;
+	struct rb_node rb_node;
+	int rt_throttled;
+
+	int highest_prio;
+
+	u64 rt_deadline;
+	u64 rt_time;
+	u64 rt_runtime;
+	ktime_t rt_period;
+
+	struct hrtimer rt_period_timer;
+
+	/* Nests inside the rq lock: */
+	raw_spinlock_t rt_runtime_lock;
+
+	unsigned long rt_nr_boosted;
+
+#ifdef CONFIG_RT_GROUP_SCHED
+	struct rq *rq;
+	struct list_head leaf_rt_rq_list;
+	struct task_group *tg;
+
+	bool rt_needs_resync;
+#endif
+};
+
+struct rt_edf_tree {
+	struct rb_root rb_root;
+	struct rb_node *rb_leftmost;
+};
+
+/* Root runqueue for rt tasks: */
+struct rt_root_rq {
 #if defined CONFIG_SMP || defined CONFIG_RT_GROUP_SCHED
 	struct {
 		int curr; /* highest queued rt task prio */
@@ -307,19 +342,8 @@ struct rt_rq {
 	int overloaded;
 	struct plist_head pushable_tasks;
 #endif
-	int rt_throttled;
-	u64 rt_time;
-	u64 rt_runtime;
-	/* Nests inside the rq lock: */
-	raw_spinlock_t rt_runtime_lock;
-
-#ifdef CONFIG_RT_GROUP_SCHED
-	unsigned long rt_nr_boosted;
-
-	struct rq *rq;
-	struct list_head leaf_rt_rq_list;
-	struct task_group *tg;
-#endif
+	struct rt_edf_tree rt_edf_tree;
+	struct rt_rq rt_rq;
 };
 
 #ifdef CONFIG_SMP
@@ -382,7 +406,7 @@ struct rq {
 	u64 nr_switches;
 
 	struct cfs_rq cfs;
-	struct rt_rq rt;
+	struct rt_root_rq rt;
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* list of leaf cfs_rq on this cpu: */
@@ -586,7 +610,6 @@ static inline void set_task_rq(struct task_struct *p, unsigned int cpu)
 
 #ifdef CONFIG_RT_GROUP_SCHED
 	p->rt.rt_rq  = tg->rt_rq[cpu];
-	p->rt.parent = tg->rt_se[cpu];
 #endif
 }
 
@@ -1177,7 +1200,9 @@ extern void print_cfs_stats(struct seq_file *m, int cpu);
 extern void print_rt_stats(struct seq_file *m, int cpu);
 
 extern void init_cfs_rq(struct cfs_rq *cfs_rq);
-extern void init_rt_rq(struct rt_rq *rt_rq, struct rq *rq);
+extern void init_rt_rq(struct rt_rq *rt_rq, struct rq *rq,
+		struct rt_bandwidth *rt_b);
+extern void init_rt_root_rq(struct rt_root_rq *rt_rq, struct rq *rq);
 
 extern void account_cfs_bandwidth_used(int enabled, int was_enabled);
 

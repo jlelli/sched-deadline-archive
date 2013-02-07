@@ -2767,12 +2767,12 @@ extern int sched_group_set_shares(struct task_group *tg, unsigned long shares);
 extern unsigned long sched_group_shares(struct task_group *tg);
 #endif
 #ifdef CONFIG_RT_GROUP_SCHED
-extern int sched_group_set_rt_runtime(struct task_group *tg,
+extern int sched_group_set_rt_runtime(struct task_group *tg, int task_data,
 				      long rt_runtime_us);
-extern long sched_group_rt_runtime(struct task_group *tg);
-extern int sched_group_set_rt_period(struct task_group *tg,
+extern long sched_group_rt_runtime(struct task_group *tg, int task_data);
+extern int sched_group_set_rt_period(struct task_group *tg, int task_data,
 				      long rt_period_us);
-extern long sched_group_rt_period(struct task_group *tg);
+extern long sched_group_rt_period(struct task_group *tg, int task_data);
 extern int sched_rt_can_attach(struct task_group *tg, struct task_struct *tsk);
 #endif
 #endif /* CONFIG_CGROUP_SCHED */
