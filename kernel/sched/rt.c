@@ -46,12 +46,23 @@ void init_rt_rq(struct rt_rq *rt_rq, struct rq *rq,
 		     HRTIMER_MODE_REL);
 	rt_rq->rt_period_timer.function = sched_rt_period_timer;
 
+	rt_rq->rt_bw = to_ratio(ktime_to_ns(rt_b->rt_period), rt_b->rt_runtime);
+
 #ifdef CONFIG_RT_GROUP_SCHED
 	rt_rq->rt_nr_boosted = 0;
 	rt_rq->rq = rq;
 	rt_rq->rt_needs_resync = false;
 #endif
 }
+
+#ifdef CONFIG_SMP
+static inline unsigned long rt_init_free_bw(void)
+{
+	unsigned long used = to_ratio(global_rt_period(), global_rt_runtime());
+
+	return to_ratio(RUNTIME_INF, RUNTIME_INF) - used;
+}
+#endif
 
 void init_rt_root_rq(struct rt_root_rq *rt, struct rq *rq)
 {
@@ -65,6 +76,9 @@ void init_rt_root_rq(struct rt_root_rq *rt, struct rq *rq)
 	rt->rt_nr_migratory = 0;
 	rt->overloaded = 0;
 	plist_head_init(&rt->pushable_tasks);
+
+	rt->rt_edf_tree.rt_free_bw = rt_init_free_bw();
+	raw_spin_lock_init(&rt->rt_edf_tree.rt_bw_lock);
 #endif
 	rt->rt_edf_tree.rb_root = RB_ROOT;
 	init_rt_rq(&rt->rt_rq, rq, &def_rt_bandwidth);
@@ -562,31 +576,237 @@ static inline int rt_time_before(u64 a, u64 b)
 
 #ifdef CONFIG_SMP
 /*
- * We ran out of runtime, see if we can borrow some from our neighbours.
+ * Reset the balancing machinery, restarting from a safe runtime assignment
+ * on all the cpus/rt_rqs in the system.  There is room for improvements here,
+ * as this iterates through all the rt_rqs in the system; the main problem
+ * is that after the balancing has been running for some time we are not
+ * sure that the fragmentation of the free bandwidth it produced allows new
+ * groups to run where they need to run.  The caller has to make sure that
+ * only one instance of this function is running at any time.
  */
-static int do_balance_runtime(struct rt_rq *rt_rq)
+static void __rt_reset_runtime(void)
 {
-	struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
-	struct root_domain *rd = rq_of_rt_rq(rt_rq)->rd;
-	int i, weight, more = 0;
+	struct rq *rq;
+	struct rt_rq *rt_rq;
+	struct rt_bandwidth *rt_b;
+	rt_rq_iter_t iter;
+	int i;
+
+	for_each_possible_cpu(i) {
+		rq = cpu_rq(i);
+
+		rq->rt_balancing_disabled = 1;
+		/*
+		 * No memory barrier is necessary here.  The following
+		 * lock+unlock sequences act as implicit barriers; all
+		 * the new balancing operations occuring after the lock+
+		 * unlock sequence will see the rt_balancing_disabled
+		 * flag set, while the ones occurring before it will be
+		 * safe because under the spinlock.
+		 */
+		for_each_rt_rq(rt_rq, iter, rq) {
+			rt_b = sched_rt_bandwidth(rt_rq);
+
+			raw_spin_lock_irq(&rt_b->rt_runtime_lock);
+			raw_spin_lock(&rt_rq->rt_runtime_lock);
+			rt_rq->rt_runtime = rt_b->rt_runtime;
+			rt_rq->rt_period = rt_b->rt_period;
+			rt_rq->rt_time = 0;
+			rt_rq->rt_bw = to_ratio(ktime_to_ns(rt_b->rt_period),
+						rt_b->rt_runtime);
+			raw_spin_unlock(&rt_rq->rt_runtime_lock);
+			raw_spin_unlock_irq(&rt_b->rt_runtime_lock);
+		}
+	}
+}
+
+#ifdef CONFIG_RT_GROUP_SCHED
+
+static unsigned long rt_used_bandwidth(void)
+{
+	struct task_group *tg;
+	unsigned long used = 0;
 	u64 rt_period;
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(tg, &task_groups, list) {
+		rt_period = ktime_to_ns(tg->rt_task_bandwidth.rt_period);
+		used += to_ratio(rt_period, tg->rt_task_bandwidth.rt_runtime);
+	}
+	rcu_read_unlock();
+
+	return used;
+}
+
+#else
+
+static unsigned long rt_used_bandwidth(void)
+{
+	return to_ratio(global_rt_period(), global_rt_runtime());
+}
+
+#endif
+
+/*
+ * Maximum bandwidth available for rt computing on a singled CPU.  To
+ * preserve the old behaviour, allow them to use all the bandwidth;
+ * the runtime migration code makes sure that, if a CPU is saturated,
+ * CPU time is still available for non-rt tasks on the other CPUs.
+ */
+static unsigned long rt_free_bandwidth(void)
+{
+	return to_ratio(RUNTIME_INF, RUNTIME_INF);
+}
+
+static void __rt_restart_balancing(void)
+{
+	unsigned long free;
+	struct rq *rq;
+	int i;
+
+	free = rt_free_bandwidth() - rt_used_bandwidth();
+
+	for_each_possible_cpu(i) {
+		rq = cpu_rq(i);
+
+		raw_spin_lock_irq(&rq->rt.rt_edf_tree.rt_bw_lock);
+		rq->rt.rt_edf_tree.rt_free_bw = free;
+		raw_spin_unlock_irq(&rq->rt.rt_edf_tree.rt_bw_lock);
+
+		rq->rt_balancing_disabled = 0;
+	}
+}
+
+void rt_reset_runtime(void)
+{
+	__rt_reset_runtime();
+	__rt_restart_balancing();
+}
+
+static inline void double_spin_lock(raw_spinlock_t *lock1,
+				    raw_spinlock_t *lock2)
+	__acquires(lock1)
+	__acquires(lock2)
+{
+	if (lock1 < lock2) {
+		raw_spin_lock(lock1);
+		raw_spin_lock_nested(lock2, SINGLE_DEPTH_NESTING);
+	} else {
+		raw_spin_lock(lock2);
+		raw_spin_lock_nested(lock1, SINGLE_DEPTH_NESTING);
+	}
+}
+
+static inline void double_spin_unlock(raw_spinlock_t *lock1,
+				      raw_spinlock_t *lock2)
+	__releases(lock1)
+	__releases(lock2)
+{
+	raw_spin_unlock(lock1);
+	raw_spin_unlock(lock2);
+}
+
+static u64 from_ratio(unsigned long ratio, u64 period)
+{
+	return (ratio * period) >> 20;
+}
+
+/*
+ * Keep track of the bandwidth allocated to each rt_rq.  To avoid accumulating
+ * the error introduced by to_ratio() and from_ratio() we keep track of the
+ * contribution to rt_free_bw from each rt_rq, and we sum it back before
+ * subtracting the new contribution.
+ */ 
+static inline void rt_update_bw(struct rt_rq *rt_rq, struct rt_edf_tree *tree,
+				s64 diff, u64 rt_period)
+{
+	unsigned long bw;
+
+	rt_rq->rt_runtime += diff;
+	bw = to_ratio(rt_period, rt_rq->rt_runtime);
+	tree->rt_free_bw += bw - rt_rq->rt_bw;
+	rt_rq->rt_bw = bw;
+}
+
+/*
+ * Try to move *diff units of runtime from src to dst, checking
+ * that the utilization does not exceed the global limits on the
+ * destination cpu.  Returns true if the migration succeeded, leaving
+ * in *diff the actual amount of runtime moved, false on failure, which
+ * means that no more bandwidth can be migrated to rt_rq.
+ */
+static bool rt_move_bw(struct rt_rq *src, struct rt_rq *dst,
+		       s64 *diff, u64 rt_period, bool force)
+{
+	struct rq *rq = rq_of_rt_rq(dst), *src_rq = rq_of_rt_rq(src);
+	struct rt_edf_tree *dtree = &rq->rt.rt_edf_tree;
+	struct rt_edf_tree *stree = &src_rq->rt.rt_edf_tree;
+	unsigned long bw_to_move;
+	bool ret = false;
+
+	double_spin_lock(&dtree->rt_bw_lock, &stree->rt_bw_lock);
+
+	if (dtree->rt_free_bw || force) {
+		bw_to_move = to_ratio(rt_period, *diff);
+		if (bw_to_move > dtree->rt_free_bw && !force)
+			*diff = from_ratio(dtree->rt_free_bw, rt_period);
+
+		if (*diff) {
+			rt_update_bw(src, stree, -(*diff), rt_period);
+			rt_update_bw(dst, dtree, *diff, rt_period);
+
+			ret = true;
+		}
+	}
+
+	double_spin_unlock(&dtree->rt_bw_lock, &stree->rt_bw_lock);
+
+	return ret;
+}
+
+/*
+ * Handle runtime rebalancing: try to push our bandwidth to
+ * runqueues that need it.
+ */
+static void do_balance_runtime(struct rt_rq *rt_rq)
+{
+	struct rq *rq = cpu_rq(smp_processor_id());
+	struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
+	struct root_domain *rd = rq->rd;
+	int i, weight, ret;
+	u64 rt_period, prev_runtime;
+	s64 diff;
 
 	weight = cpumask_weight(rd->span);
 
 	raw_spin_lock(&rt_b->rt_runtime_lock);
+	/*
+	 * The raw_spin_lock() acts as an acquire barrier, ensuring
+	 * that rt_balancing_disabled is accessed after taking the lock;
+	 * since rt_reset_runtime() takes rt_runtime_lock after setting
+	 * the disable flag we are sure that no bandwidth is migrated
+	 * while the reset is in progress.
+	 */
+	if (rq->rt_balancing_disabled)
+		goto unlock;
+
+	prev_runtime = rt_rq->rt_runtime;
 	rt_period = ktime_to_ns(rt_b->rt_period);
 	for_each_cpu(i, rd->span) {
 		struct rt_rq *iter = sched_rt_period_rt_rq(rt_b, i);
-		s64 diff;
+		struct rq *iter_rq = rq_of_rt_rq(iter);
 
 		if (iter == rt_rq)
+			continue;
+
+		if (iter_rq->rt_balancing_disabled)
 			continue;
 
 		raw_spin_lock(&iter->rt_runtime_lock);
 		/*
 		 * Either all rqs have inf runtime and there's nothing to steal
 		 * or __disable_runtime() below sets a specific rq to inf to
-		 * indicate its been disabled and disalow stealing.
+		 * indicate its been disabled and disallow stealing.
 		 */
 		if (iter->rt_runtime == RUNTIME_INF)
 			goto next;
@@ -600,10 +820,14 @@ static int do_balance_runtime(struct rt_rq *rt_rq)
 			diff = div_u64((u64)diff, weight);
 			if (rt_rq->rt_runtime + diff > rt_period)
 				diff = rt_period - rt_rq->rt_runtime;
-			iter->rt_runtime -= diff;
-			rt_rq->rt_runtime += diff;
-			more = 1;
-			if (rt_rq->rt_runtime == rt_period) {
+
+			ret = rt_move_bw(iter, rt_rq, &diff, rt_period, false);
+			if (ret) {
+				iter->rt_runtime -= diff;
+				rt_rq->rt_runtime += diff;
+			}
+
+			if (!ret || rt_rq->rt_runtime == rt_period) {
 				raw_spin_unlock(&iter->rt_runtime_lock);
 				break;
 			}
@@ -611,13 +835,38 @@ static int do_balance_runtime(struct rt_rq *rt_rq)
 next:
 		raw_spin_unlock(&iter->rt_runtime_lock);
 	}
-	raw_spin_unlock(&rt_b->rt_runtime_lock);
 
-	return more;
+	/*
+	 * If the runqueue is not throttled, changing its runtime
+	 * without updating its deadline could create transients during
+	 * which the rt_rq uses more bandwidth than assigned.  Here vtime
+	 * is the time instant when an ideal server with prev_runtime /
+	 * rt_period utilization would have given the same amount of
+	 * service to rt_rq as it actually received.  At this time instant
+	 * it is true that rt_time = vtime * prev_runtime / rt_period,
+	 * (the service in the ideal server grows linearly at the nominal
+	 * rate allocated to rt_rq), so we can invert the relation to
+	 * find vtime and calculate the new deadline from there.  If the
+	 * vtime is in the past then rt_rq is lagging behind the ideal
+	 * system and we cannot risk an overload afterwards, so we just
+	 * restart from rq->clock.
+	 */
+	if (!rt_rq_throttled(rt_rq) && prev_runtime != rt_rq->rt_runtime) {
+		u64 vtime = rt_rq->rt_deadline - rt_period +
+			div64_u64(rt_rq->rt_time * rt_period, prev_runtime);
+
+		if (rt_time_before(vtime, rq->clock))
+			vtime = rq->clock;
+
+		rt_rq->rt_deadline = vtime + rt_period;
+		sched_rt_deadline_updated(rt_rq);
+	}
+unlock:
+	raw_spin_unlock(&rt_b->rt_runtime_lock);
 }
 
 /*
- * Ensure this RQ takes back all the runtime it lend to its neighbours.
+ * Ensure this RQ takes back all the runtime it has lent to its neighbours.
  */
 static void __disable_runtime(struct rq *rq)
 {
@@ -630,6 +879,7 @@ static void __disable_runtime(struct rq *rq)
 
 	for_each_rt_rq(rt_rq, iter, rq) {
 		struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
+		u64 rt_period = ktime_to_ns(rt_b->rt_period);
 		s64 want;
 		int i;
 
@@ -658,6 +908,7 @@ static void __disable_runtime(struct rq *rq)
 		for_each_cpu(i, rd->span) {
 			struct rt_rq *iter = sched_rt_period_rt_rq(rt_b, i);
 			s64 diff;
+			bool moved;
 
 			/*
 			 * Can't reclaim from ourselves or disabled runqueues.
@@ -667,12 +918,15 @@ static void __disable_runtime(struct rq *rq)
 
 			raw_spin_lock(&iter->rt_runtime_lock);
 			if (want > 0) {
-				diff = min_t(s64, iter->rt_runtime, want);
-				iter->rt_runtime -= diff;
+				diff = want;
+				rt_move_bw(iter, rt_rq, &diff, rt_period, true);
 				want -= diff;
 			} else {
-				iter->rt_runtime -= want;
-				want -= want;
+				diff = -want;
+				moved = rt_move_bw(rt_rq, iter, &diff,
+						   rt_period, false);
+				if (moved)
+					want += diff;
 			}
 			raw_spin_unlock(&iter->rt_runtime_lock);
 
@@ -714,6 +968,13 @@ static void __enable_runtime(struct rq *rq)
 
 	if (unlikely(!scheduler_running))
 		return;
+
+	/*
+	 * Reset free bandwidth on rq before runtime migration can
+	 * restart (ie. before rt_runtime's become != RUNTIME_INF).
+	 */
+	rq->rt.rt_edf_tree.rt_free_bw = rt_free_bandwidth() -
+					rt_used_bandwidth();
 
 	/*
 	 * Reset each runqueue's bandwidth settings
@@ -762,25 +1023,41 @@ int update_runtime(struct notifier_block *nfb, unsigned long action, void *hcpu)
 	}
 }
 
-static int balance_runtime(struct rt_rq *rt_rq)
+static inline void balance_runtime(struct rt_rq *rt_rq)
 {
-	int more = 0;
-
 	if (!sched_feat(RT_RUNTIME_SHARE))
-		return more;
+		return;
 
 	if (rt_rq->rt_time > rt_rq->rt_runtime) {
 		raw_spin_unlock(&rt_rq->rt_runtime_lock);
-		more = do_balance_runtime(rt_rq);
+		do_balance_runtime(rt_rq);
 		raw_spin_lock(&rt_rq->rt_runtime_lock);
 	}
-
-	return more;
 }
 #else /* !CONFIG_SMP */
-static inline int balance_runtime(struct rt_rq *rt_rq)
+static inline void balance_runtime(struct rt_rq *rt_rq)
 {
-	return 0;
+}
+
+void rt_reset_runtime(void)
+{
+	struct rq *rq = this_rq();
+	struct rt_bandwidth *rt_b;
+	struct rt_rq *rt_rq;
+	rt_rq_iter_t iter;
+
+	for_each_rt_rq(rt_rq, iter, rq) {
+		rt_b = sched_rt_bandwidth(rt_rq);
+
+		raw_spin_lock_irq(&rt_b->rt_runtime_lock);
+		raw_spin_lock(&rt_rq->rt_runtime_lock);
+		rt_rq->rt_runtime= rt_b->rt_runtime;
+		rt_rq->rt_period = rt_b->rt_period;
+		rt_rq->rt_time = 0;
+		rt_rq->rt_bw = to_ratio(rt_b->rt_period, rt_b->rt_runtime);
+		raw_spin_unlock(&rt_rq->rt_runtime_lock);
+		raw_spin_unlock_irq(&rt_b->rt_runtime_lock);
+	}
 }
 #endif /* CONFIG_SMP */
 
@@ -800,7 +1077,12 @@ static bool rt_rq_recharge(struct rt_rq *rt_rq, int overrun)
 	u64 runtime;
 	bool idle = true;
 
-	if (rt_rq->rt_time) {
+	/*
+	 * !rt_rq->rt_time && rt_rq->rt_throttled can happen if rt_rq
+	 * changed its parameters, we update them lazily here, to avoid
+	 * touching the timer from the configuration code.
+	 */
+	if (rt_rq->rt_time || rt_rq->rt_throttled) {
 		runtime = rt_rq->rt_runtime;
 		rt_rq->rt_time -= min(rt_rq->rt_time, overrun * runtime);
 		rt_rq->rt_deadline += overrun * ktime_to_ns(rt_rq->rt_period);

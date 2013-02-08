@@ -141,6 +141,10 @@ struct task_group {
 	struct cfs_bandwidth cfs_bandwidth;
 };
 
+#if defined(CONFIG_RT_GROUP_SCHED) || defined(CONFIG_CFS_BANDWIDTH)
+extern unsigned long to_ratio(u64 period, u64 runtime);
+#endif
+
 #ifdef CONFIG_FAIR_GROUP_SCHED
 #define ROOT_TASK_GROUP_LOAD	NICE_0_LOAD
 
@@ -195,6 +199,7 @@ extern void unthrottle_cfs_rq(struct cfs_rq *cfs_rq);
 extern void free_rt_sched_group(struct task_group *tg);
 extern int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent);
 extern void init_tg_rt_entry(struct task_group *tg, struct rt_rq *rt_rq, int cpu);
+extern void rt_reset_runtime(void);
 
 #else /* CONFIG_CGROUP_SCHED */
 
@@ -310,9 +315,11 @@ struct rt_rq {
 	/* Nests inside the rq lock: */
 	raw_spinlock_t rt_runtime_lock;
 
-	unsigned long rt_nr_boosted;
+	unsigned long rt_bw;
 
 #ifdef CONFIG_RT_GROUP_SCHED
+	unsigned long rt_nr_boosted;
+
 	struct rq *rq;
 	struct list_head leaf_rt_rq_list;
 	struct task_group *tg;
@@ -324,6 +331,11 @@ struct rt_rq {
 struct rt_edf_tree {
 	struct rb_root rb_root;
 	struct rb_node *rb_leftmost;
+
+#ifdef CONFIG_SMP
+	unsigned long rt_free_bw;
+	raw_spinlock_t rt_bw_lock;
+#endif
 };
 
 /* Root runqueue for rt tasks: */
@@ -407,6 +419,7 @@ struct rq {
 
 	struct cfs_rq cfs;
 	struct rt_root_rq rt;
+	int rt_balancing_disabled;
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* list of leaf cfs_rq on this cpu: */
