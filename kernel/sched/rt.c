@@ -442,6 +442,10 @@ static inline const struct cpumask *sched_rt_period_mask(void)
 }
 #endif
 
+/*
+ * Returns the rt_rq (on CPU cpu) that is part of the
+ * task group associated with rt_b.
+ */
 static inline
 struct rt_rq *sched_rt_period_rt_rq(struct rt_bandwidth *rt_b, int cpu)
 {
@@ -764,18 +768,92 @@ static bool rt_move_bw(struct rt_rq *src, struct rt_rq *dst,
 	return ret;
 }
 
+static inline bool runtime_push_needed(struct rt_rq *src, struct rt_rq *dst)
+{
+	if (!dst->rt_nr_running)
+		return false;
+
+	if (src->rt_runtime <= dst->rt_runtime)
+		return false;
+
+	return true;
+}
+
+static inline bool stop_runtime_balancing(bool pull, bool moved, s64 diff)
+{
+	if (pull && !moved) {
+		/* No more available bw on our cpu while pulling. */
+		return true;
+	}
+
+	if (!pull && diff < 0) {
+		/* No more bandwidth to give back while pushing. */
+		return true;
+	}
+
+	return false;
+}
+
 /*
- * Handle runtime rebalancing: try to push our bandwidth to
- * runqueues that need it.
+ * Try to move runtime between rt_rq and iter, in the direction specified
+ * by pull.  Return true if balancing should stop.
  */
-static void do_balance_runtime(struct rt_rq *rt_rq)
+static inline bool move_runtime(struct rt_rq *rt_rq, struct rt_rq *iter,
+			       int weight, u64 rt_period, bool pull)
+{
+	struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
+	struct rt_rq *src, *dst;
+	u64 leave;
+	s64 diff = 0;
+	bool moved = true;
+
+	if (pull) {
+		/*
+		 * From runqueues with spare time, take 1/n part of their
+		 * spare time, but no more than our period.  In case we are
+		 * stealing from an active rt_rq, make sure we steal only
+		 * from the runtime it borrowed, to avoid instability.
+		 */
+		if (iter->rt_nr_running)
+			leave = max(rt_b->rt_runtime, iter->rt_time);
+		else
+			leave = iter->rt_time;
+		diff = iter->rt_runtime - leave;
+		src = iter;
+		dst = rt_rq;
+	} else if (runtime_push_needed(rt_rq, iter)) {
+		/*
+		 * Try to give 1/n part of our borrowed runtime to the
+		 * runqueues needing it.
+		 */
+		diff = rt_rq->rt_runtime - rt_rq->rt_time - rt_b->rt_runtime;
+		src = rt_rq;
+		dst = iter;
+	}
+
+	if (diff > 0) {
+		diff = div_u64((u64)diff, weight);
+		if (dst->rt_runtime + diff > rt_period)
+			diff = rt_period - dst->rt_runtime;
+
+		moved = rt_move_bw(src, dst, &diff, rt_period, false);
+	}
+
+	return stop_runtime_balancing(pull, moved, diff);
+}
+
+/*
+ * Handle runtime rebalancing: either try to push our bandwidth to
+ * runqueues that need it, or pull from those that can lend some.
+ */
+static void do_balance_runtime(struct rt_rq *rt_rq, bool pull)
 {
 	struct rq *rq = cpu_rq(smp_processor_id());
 	struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
 	struct root_domain *rd = rq->rd;
-	int i, weight, ret;
+	int i, weight;
 	u64 rt_period, prev_runtime;
-	s64 diff;
+	bool stop;
 
 	weight = cpumask_weight(rd->span);
 
@@ -811,26 +889,10 @@ static void do_balance_runtime(struct rt_rq *rt_rq)
 		if (iter->rt_runtime == RUNTIME_INF)
 			goto next;
 
-		/*
-		 * From runqueues with spare time, take 1/n part of their
-		 * spare time, but no more than our period.
-		 */
-		diff = iter->rt_runtime - iter->rt_time;
-		if (diff > 0) {
-			diff = div_u64((u64)diff, weight);
-			if (rt_rq->rt_runtime + diff > rt_period)
-				diff = rt_period - rt_rq->rt_runtime;
-
-			ret = rt_move_bw(iter, rt_rq, &diff, rt_period, false);
-			if (ret) {
-				iter->rt_runtime -= diff;
-				rt_rq->rt_runtime += diff;
-			}
-
-			if (!ret || rt_rq->rt_runtime == rt_period) {
-				raw_spin_unlock(&iter->rt_runtime_lock);
-				break;
-			}
+		stop = move_runtime(rt_rq, iter, weight, rt_period, pull);
+		if (stop) {
+			raw_spin_unlock(&iter->rt_runtime_lock);
+			break;
 		}
 next:
 		raw_spin_unlock(&iter->rt_runtime_lock);
@@ -1023,17 +1085,27 @@ int update_runtime(struct notifier_block *nfb, unsigned long action, void *hcpu)
 	}
 }
 
-static inline void balance_runtime(struct rt_rq *rt_rq)
+static inline void balance_runtime(struct rt_rq *rt_rq, int pull)
 {
 	if (!sched_feat(RT_RUNTIME_SHARE))
 		return;
 
-	if (rt_rq->rt_time > rt_rq->rt_runtime) {
-		raw_spin_unlock(&rt_rq->rt_runtime_lock);
-		do_balance_runtime(rt_rq);
-		raw_spin_lock(&rt_rq->rt_runtime_lock);
-	}
+	raw_spin_unlock(&rt_rq->rt_runtime_lock);
+	do_balance_runtime(rt_rq, pull);
+	raw_spin_lock(&rt_rq->rt_runtime_lock);
 }
+
+static void pull_runtime(struct rt_rq *rt_rq)
+{
+	balance_runtime(rt_rq, true);
+}
+
+static void push_runtime(struct rt_rq *rt_rq)
+{
+	if (rt_rq->rt_time < rt_rq->rt_runtime)
+		balance_runtime(rt_rq, false);
+}
+
 #else /* !CONFIG_SMP */
 static inline void balance_runtime(struct rt_rq *rt_rq)
 {
@@ -1106,6 +1178,9 @@ static bool rt_rq_recharge(struct rt_rq *rt_rq, int overrun)
 	} else if (rt_rq->rt_nr_running)
 		idle = false;
 
+	/* Try to give back what we borrowed from rt_rq's in need. */
+	push_runtime(rt_rq);
+
 	return idle && !rt_rq_needs_recharge(rt_rq);
 }
 
@@ -1119,9 +1194,6 @@ static bool do_sched_rt_period_timer(struct rt_rq *rt_rq, int overrun)
 
 	raw_spin_lock(&rq->lock);
 	raw_spin_lock(&rt_rq->rt_runtime_lock);
-
-	if (rt_rq->rt_throttled)
-		balance_runtime(rt_rq);
 
 	idle = rt_rq_recharge(rt_rq, overrun);
 
@@ -1220,12 +1292,15 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 	if (runtime >= sched_rt_period(rt_rq))
 		return 0;
 
-	balance_runtime(rt_rq);
 	runtime = sched_rt_runtime(rt_rq);
 	if (runtime == RUNTIME_INF)
 		return 0;
 
-	if (rt_rq->rt_time > runtime) {
+	if (rt_rq->rt_time < runtime)
+		return 0;
+
+	pull_runtime(rt_rq);
+	if (rt_rq->rt_time > rt_rq->rt_runtime) {
 		struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
 
 		/*
@@ -1233,22 +1308,21 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 		 * but accrue some time due to boosting.
 		 */
 		if (likely(rt_b->rt_runtime)) {
-			static bool once = false;
-
 			rt_rq->rt_throttled = 1;
 			start_rt_period_timer(rt_rq);
-
-			if (!once) {
-				once = true;
-				printk_sched("sched: RT throttling activated\n");
-			}
 		} else {
+			static bool once = false;
 			/*
 			 * In case we did anyway, make it go away,
 			 * replenishment is a joke, since it will replenish us
 			 * with exactly 0 ns.
 			 */
 			rt_rq->rt_time = 0;
+
+			if (!once) {
+				once = true;
+				printk_sched("sched: RT throttling bypassed\n");
+			}
 		}
 
 		if (rt_rq_throttled(rt_rq)) {
@@ -1532,6 +1606,7 @@ update:
 			rt_rq->rt_deadline += period;
 			rt_rq->rt_time -= runtime;
 		}
+		push_runtime(rt_rq);
 	}
 	raw_spin_unlock(&rt_rq->rt_runtime_lock);
 }
