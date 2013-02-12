@@ -50,12 +50,24 @@ static inline int rt_policy(int policy)
 	return 0;
 }
 
+static inline int dl_policy(int policy)
+{
+	if (unlikely(policy == SCHED_DEADLINE))
+		return 1;
+	return 0;
+}
+
 static inline int task_has_rt_policy(struct task_struct *p)
 {
 	return rt_policy(p->policy);
 }
 
 extern struct rt_rq *rt_rq_of_se(struct sched_rt_entity *rt_se);
+
+static inline int task_has_dl_policy(struct task_struct *p)
+{
+	return dl_policy(p->policy);
+}
 
 /*
  * This is the priority-queue data structure of the RT scheduling class:
@@ -366,6 +378,15 @@ struct rt_root_rq {
 	struct rt_rq rt_rq;
 };
 
+/* Deadline class' related fields in a runqueue */
+struct dl_rq {
+	/* runqueue is an rbtree, ordered by deadline */
+	struct rb_root rb_root;
+	struct rb_node *rb_leftmost;
+
+	unsigned long dl_nr_running;
+};
+
 #ifdef CONFIG_SMP
 
 /*
@@ -428,6 +449,7 @@ struct rq {
 	struct cfs_rq cfs;
 	struct rt_root_rq rt;
 	int rt_balancing_disabled;
+	struct dl_rq dl;
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	/* list of leaf cfs_rq on this cpu: */
@@ -912,6 +934,7 @@ enum cpuacct_stat_index {
    for (class = sched_class_highest; class; class = class->next)
 
 extern const struct sched_class stop_sched_class;
+extern const struct sched_class dl_sched_class;
 extern const struct sched_class rt_sched_class;
 extern const struct sched_class fair_sched_class;
 extern const struct sched_class idle_sched_class;
@@ -943,6 +966,8 @@ extern void resched_cpu(int cpu);
 
 extern struct rt_bandwidth def_rt_bandwidth;
 extern void init_rt_bandwidth(struct rt_bandwidth *rt_b, u64 period, u64 runtime);
+
+extern void init_dl_task_timer(struct sched_dl_entity *dl_se);
 
 extern void update_idle_cpu_load(struct rq *this_rq);
 
@@ -1224,6 +1249,7 @@ extern void init_cfs_rq(struct cfs_rq *cfs_rq);
 extern void init_rt_rq(struct rt_rq *rt_rq, struct rq *rq,
 		struct rt_bandwidth *rt_b);
 extern void init_rt_root_rq(struct rt_root_rq *rt_rq, struct rq *rq);
+extern void init_dl_rq(struct dl_rq *rt_rq, struct rq *rq);
 
 extern void account_cfs_bandwidth_used(int enabled, int was_enabled);
 
