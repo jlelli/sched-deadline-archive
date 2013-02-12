@@ -143,9 +143,9 @@ int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent)
 		goto err;
 
 	init_rt_bandwidth(&tg->rt_bandwidth,
-			ktime_to_ns(def_rt_bandwidth.rt_period), 0);
+			ktime_to_ns(parent->rt_bandwidth.rt_period), 0);
 	init_rt_bandwidth(&tg->rt_task_bandwidth,
-			ktime_to_ns(def_rt_bandwidth.rt_period), 0);
+			ktime_to_ns(parent->rt_bandwidth.rt_period), 0);
 
 	for_each_possible_cpu(i) {
 		rt_rq = kzalloc_node(sizeof(struct rt_rq),
@@ -708,11 +708,6 @@ static inline void double_spin_unlock(raw_spinlock_t *lock1,
 {
 	raw_spin_unlock(lock1);
 	raw_spin_unlock(lock2);
-}
-
-static u64 from_ratio(unsigned long ratio, u64 period)
-{
-	return (ratio * period) >> 20;
 }
 
 /*

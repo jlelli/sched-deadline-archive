@@ -125,6 +125,8 @@ struct task_group {
 
 	/* CPU bandwidth reserved to the tasks in this group. */
 	struct rt_bandwidth rt_task_bandwidth;
+
+	bool rt_fill_runtime;
 #endif
 
 	struct rcu_head rcu;
@@ -143,6 +145,7 @@ struct task_group {
 
 #if defined(CONFIG_RT_GROUP_SCHED) || defined(CONFIG_CFS_BANDWIDTH)
 extern unsigned long to_ratio(u64 period, u64 runtime);
+extern u64 from_ratio(unsigned long ratio, u64 period);
 #endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
