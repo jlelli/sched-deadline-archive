@@ -240,6 +240,8 @@ void print_rt_rq(struct seq_file *m, int cpu, struct rt_rq *rt_rq)
 {
 #ifdef CONFIG_RT_GROUP_SCHED
 	SEQ_printf(m, "\nrt_rq[%d]:%s\n", cpu, task_group_path(rt_rq->tg));
+	SEQ_printf(m, "  exp=%ld\n", (long)ktime_to_ns(
+		hrtimer_get_expires(&rt_rq->rt_period_timer)));
 #else
 	SEQ_printf(m, "\nrt_rq[%d]:\n", cpu);
 #endif

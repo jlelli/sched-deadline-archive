@@ -774,15 +774,16 @@ static inline bool runtime_push_needed(struct rt_rq *src, struct rt_rq *dst)
 	return true;
 }
 
-static inline bool stop_runtime_balancing(bool pull, bool moved, s64 diff)
+static inline bool stop_runtime_balancing(bool moved, struct rt_rq *dst,
+					  u64 target)
 {
-	if (pull && !moved) {
+	if (!moved) {
 		/* No more available bw on our cpu while pulling. */
 		return true;
 	}
 
-	if (!pull && diff < 0) {
-		/* No more bandwidth to give back while pushing. */
+	if (dst->rt_runtime >= target) {
+		/* We reached our goal. */
 		return true;
 	}
 
@@ -794,63 +795,53 @@ static inline bool stop_runtime_balancing(bool pull, bool moved, s64 diff)
  * by pull.  Return true if balancing should stop.
  */
 static inline bool move_runtime(struct rt_rq *rt_rq, struct rt_rq *iter,
-			       int weight, u64 rt_period, bool pull)
+				u64 target, int weight, u64 min_runtime,
+				u64 rt_period)
 {
 	struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
-	struct rt_rq *src, *dst;
+	struct rt_rq *src = iter, *dst = rt_rq;
 	u64 leave;
 	s64 diff = 0;
 	bool moved = true;
 
-	if (pull) {
-		/*
-		 * From runqueues with spare time, take 1/n part of their
-		 * spare time, but no more than our period.  In case we are
-		 * stealing from an active rt_rq, make sure we steal only
-		 * from the runtime it borrowed, to avoid instability.
-		 */
-		if (iter->rt_nr_running)
-			leave = max(rt_b->rt_runtime, iter->rt_time);
-		else
-			leave = iter->rt_time;
-		diff = iter->rt_runtime - leave;
-		src = iter;
-		dst = rt_rq;
-	} else if (runtime_push_needed(rt_rq, iter)) {
-		/*
-		 * Try to give 1/n part of our borrowed runtime to the
-		 * runqueues needing it.
-		 */
-		diff = rt_rq->rt_runtime - rt_rq->rt_time - rt_b->rt_runtime;
-		src = rt_rq;
-		dst = iter;
-	}
+	/*
+	 * From runqueues with spare time, take 1/n part of their
+	 * spare time, but no more than our period.  In case we are
+	 * stealing from an active rt_rq, make sure we steal only
+	 * from the runtime it borrowed, to avoid instability.  We're
+	 * also careful with runqueues waiting to be recharged, letting
+	 * them get refills of at least rt_b->rt_runtime.
+	 */
+	if (iter->rt_nr_running || hrtimer_active(&rt_rq->rt_period_timer))
+		leave = max(rt_b->rt_runtime, iter->rt_time);
+	else
+		leave = max(min_runtime, iter->rt_time);
+	diff = iter->rt_runtime - leave;
 
 	if (diff > 0) {
 		diff = div_u64((u64)diff, weight);
 		if (dst->rt_runtime + diff > rt_period)
 			diff = rt_period - dst->rt_runtime;
+		if (dst->rt_runtime + diff > target)
+			diff = target - dst->rt_runtime;
 
 		moved = rt_move_bw(src, dst, &diff, rt_period, false);
 	}
 
-	return stop_runtime_balancing(pull, moved, diff);
+	return stop_runtime_balancing(moved, dst, target);
 }
 
 /*
- * Handle runtime rebalancing: either try to push our bandwidth to
- * runqueues that need it, or pull from those that can lend some.
+ * Handle runtime rebalancing: XXX
  */
-static void do_balance_runtime(struct rt_rq *rt_rq, bool pull)
+static void do_balance_runtime(struct rt_rq *rt_rq)
 {
 	struct rq *rq = cpu_rq(smp_processor_id());
 	struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
 	struct root_domain *rd = rq->rd;
-	int i, weight;
-	u64 rt_period, prev_runtime;
-	bool stop;
-
-	weight = cpumask_weight(rd->span);
+	int i, weight, tot_weight;
+	u64 rt_period, prev_runtime, target, min_runtime;
+	bool stop = false;
 
 	raw_spin_lock(&rt_b->rt_runtime_lock);
 	/*
@@ -862,6 +853,41 @@ static void do_balance_runtime(struct rt_rq *rt_rq, bool pull)
 	 */
 	if (rq->rt_balancing_disabled)
 		goto unlock;
+
+	tot_weight = cpumask_weight(rd->span);
+
+	/*
+	 * We want to leave some runtime to idle runqueues, otherwise their
+	 * deadline could be postponed indefinitely.  Note that rebalancing
+	 * before postponing the deadline could not be sufficient, because
+	 * the rebalance would not be guaranteed to take place.
+	 */
+	min_runtime = div_u64(rt_b->rt_runtime, tot_weight);
+
+	if (rt_rq->rt_runtime < rt_b->rt_runtime) {
+		/* Try to recover all the runtime we've lent. */
+		target = rt_b->rt_runtime;
+
+		/* Take all we can for ourselves. */
+		weight = 1;
+	} else {
+		/*
+		 * Share the bandwidth that can be lent with the other
+		 * active rt_rqs; the count is not accurate, as we haven't
+		 * got a lock to globally protect the rt_nr_running counters,
+		 * but if there are frequent activations/deactivations we
+		 * can't obtain a steady balance anyway...
+		 */
+		weight = 0;
+		for_each_cpu(i, rd->span) {
+			struct rt_rq *iter = sched_rt_period_rt_rq(rt_b, i);
+			weight += !!iter->rt_nr_running;
+		}
+
+		/* Aim at our share plus 1/weight of all the spare bw. */
+		target = rt_b->rt_runtime + div_u64((tot_weight-weight)
+				* (rt_b->rt_runtime - min_runtime), weight);
+	}
 
 	prev_runtime = rt_rq->rt_runtime;
 	rt_period = ktime_to_ns(rt_b->rt_period);
@@ -884,14 +910,20 @@ static void do_balance_runtime(struct rt_rq *rt_rq, bool pull)
 		if (iter->rt_runtime == RUNTIME_INF)
 			goto next;
 
-		stop = move_runtime(rt_rq, iter, weight, rt_period, pull);
-		if (stop) {
-			raw_spin_unlock(&iter->rt_runtime_lock);
-			break;
-		}
+		stop = move_runtime(rt_rq, iter, target, weight,
+				    min_runtime, rt_period);
+
 next:
 		raw_spin_unlock(&iter->rt_runtime_lock);
+		if (stop)
+			break;
 	}
+
+#if 0
+	printk("[%d] PRT=%ld NRT=%ld TGT=%ld W=%d NR=%ld\n", rq->cpu,
+		(long)prev_runtime, (long)rt_rq->rt_runtime, (long)target,
+		weight, (long)rt_rq->rt_nr_running);
+#endif
 
 	/*
 	 * If the runqueue is not throttled, changing its runtime
@@ -1080,31 +1112,18 @@ int update_runtime(struct notifier_block *nfb, unsigned long action, void *hcpu)
 	}
 }
 
-static inline void balance_runtime(struct rt_rq *rt_rq, int pull)
+static inline void balance_runtime(struct rt_rq *rt_rq)
 {
 	if (!sched_feat(RT_RUNTIME_SHARE))
 		return;
 
 	raw_spin_unlock(&rt_rq->rt_runtime_lock);
-	do_balance_runtime(rt_rq, pull);
+	do_balance_runtime(rt_rq);
 	raw_spin_lock(&rt_rq->rt_runtime_lock);
 }
 
-static void pull_runtime(struct rt_rq *rt_rq)
-{
-	balance_runtime(rt_rq, true);
-}
-
-static void push_runtime(struct rt_rq *rt_rq)
-{
-	if (rt_rq->rt_time < rt_rq->rt_runtime)
-		balance_runtime(rt_rq, false);
-}
-
 #else /* !CONFIG_SMP */
-static inline void balance_runtime(struct rt_rq *rt_rq)
-{
-}
+static inline void balance_runtime(struct rt_rq *rt_rq) {}
 
 void rt_reset_runtime(void)
 {
@@ -1173,9 +1192,6 @@ static bool rt_rq_recharge(struct rt_rq *rt_rq, int overrun)
 	} else if (rt_rq->rt_nr_running)
 		idle = false;
 
-	/* Try to give back what we borrowed from rt_rq's in need. */
-	push_runtime(rt_rq);
-
 	return idle && !rt_rq_needs_recharge(rt_rq);
 }
 
@@ -1190,6 +1206,8 @@ static bool do_sched_rt_period_timer(struct rt_rq *rt_rq, int overrun)
 	raw_spin_lock(&rq->lock);
 	raw_spin_lock(&rt_rq->rt_runtime_lock);
 
+	if (rt_rq->rt_nr_running)
+		balance_runtime(rt_rq);
 	idle = rt_rq_recharge(rt_rq, overrun);
 
 	raw_spin_unlock(&rt_rq->rt_runtime_lock);
@@ -1314,8 +1332,8 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 	if (rt_rq->rt_time < runtime)
 		return 0;
 
-	pull_runtime(rt_rq);
-	if (rt_rq->rt_time > rt_rq->rt_runtime) {
+	balance_runtime(rt_rq);
+	if (rt_rq->rt_time >= rt_rq->rt_runtime) {
 		struct rt_bandwidth *rt_b = sched_rt_bandwidth(rt_rq);
 
 		/*
@@ -1624,7 +1642,6 @@ update:
 			rt_rq->rt_deadline += period;
 			rt_rq->rt_time -= runtime;
 		}
-		push_runtime(rt_rq);
 	}
 	raw_spin_unlock(&rt_rq->rt_runtime_lock);
 }
