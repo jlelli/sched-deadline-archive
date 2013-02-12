@@ -386,6 +386,8 @@ struct dl_rq {
 
 	unsigned long dl_nr_running;
 
+	u64 exec_clock;
+
 #ifdef CONFIG_SMP
 	/*
 	 * Deadline values of the currently executing and the
@@ -411,6 +413,11 @@ struct dl_rq {
 	struct rb_node *pushable_dl_tasks_leftmost;
 #endif
 };
+
+#ifdef CONFIG_SCHED_DEBUG
+struct sched_dl_entity *__pick_dl_last_entity(struct dl_rq *dl_rq);
+void print_dl_stats(struct seq_file *m, int cpu);
+#endif
 
 #ifdef CONFIG_SMP
 
@@ -1282,7 +1289,7 @@ extern void init_cfs_rq(struct cfs_rq *cfs_rq);
 extern void init_rt_rq(struct rt_rq *rt_rq, struct rq *rq,
 		struct rt_bandwidth *rt_b);
 extern void init_rt_root_rq(struct rt_root_rq *rt_rq, struct rq *rq);
-extern void init_dl_rq(struct dl_rq *rt_rq, struct rq *rq);
+extern void init_dl_rq(struct dl_rq *dl_rq, struct rq *rq);
 
 extern void account_cfs_bandwidth_used(int enabled, int was_enabled);
 
