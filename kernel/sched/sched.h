@@ -328,6 +328,11 @@ struct rt_rq {
 	struct task_group *tg;
 
 	bool rt_needs_resync;
+
+#ifdef CONFIG_RT_GROUP_STATS
+	u64 rt_stats_reset;
+	u64 rt_stats_exceeded;
+#endif
 #endif
 };
 

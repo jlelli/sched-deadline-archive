@@ -1277,6 +1277,26 @@ static inline int rt_se_prio(struct sched_rt_entity *rt_se)
 	return rt_task_of(rt_se)->prio;
 }
 
+#ifdef CONFIG_RT_GROUP_STATS
+static inline void sched_rt_stats_exceeded(struct rt_rq *rt_rq)
+{
+	rt_rq->rt_stats_exceeded++;
+}
+
+static inline void sched_rt_stats_reset(struct rt_rq *rt_rq)
+{
+	rt_rq->rt_stats_reset++;
+}
+#else
+static inline void sched_rt_stats_exceeded(struct rt_rq *rt_rq)
+{
+}
+
+static inline void sched_rt_stats_reset(struct rt_rq *rt_rq)
+{
+}
+#endif
+
 static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 {
 	u64 runtime = sched_rt_runtime(rt_rq);
@@ -1304,6 +1324,7 @@ static int sched_rt_runtime_exceeded(struct rt_rq *rt_rq)
 		 */
 		if (likely(rt_b->rt_runtime)) {
 			rt_rq->rt_throttled = 1;
+			sched_rt_stats_exceeded(rt_rq);
 			start_rt_period_timer(rt_rq);
 		} else {
 			static bool once = false;
@@ -1590,6 +1611,8 @@ static void rt_rq_update_deadline(struct rt_rq *rt_rq)
 update:
 		rt_rq->rt_deadline = rq->clock + period;
 		rt_rq->rt_time -= min(runtime, rt_rq->rt_time);
+
+		sched_rt_stats_reset(rt_rq);
 
 		/*
 		* Be sure to return a runqueue that can execute, if it

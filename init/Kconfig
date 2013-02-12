@@ -954,6 +954,25 @@ config RT_GROUP_SCHED
 	  realtime bandwidth for them.
 	  See Documentation/scheduler/sched-rt-group.txt for more information.
 
+config RT_GROUP_SPLITCPU
+	bool "Use a per-CPU interface for the RT cgroup scheduler"
+	depends on EXPERIMENTAL
+	depends on CGROUP_SCHED
+	default n
+	help
+	  Explicitly allocate CPU bandwidth on specific processors.  If enabled
+	  it will not make it possible to add a real-time task to a group with
+	  zero budget in any CPU included in its affinity mask.
+
+config RT_GROUP_STATS
+	bool "Export CPU RT throttling statistics"
+	depends on EXPERIMENTAL
+	depends on CGROUP_SCHED
+	default n
+	help
+	  Export some statistics which may be useful to implement feedback
+	  based mechanisms on top of the scheduler.
+
 endif #CGROUP_SCHED
 
 config BLK_CGROUP

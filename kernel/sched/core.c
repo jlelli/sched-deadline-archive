@@ -7560,6 +7560,29 @@ long sched_group_rt_period(struct task_group *tg, bool task_data)
 	return rt_period_us;
 }
 
+int sched_group_rt_edf_params(struct task_group *tg, int cpu, long *now,
+			      long *runtime, long *deadline)
+{
+	struct rt_rq *rt_rq = tg->rt_rq[cpu];
+	u64 val;
+
+	val = ktime_to_ns(ktime_get());
+	do_div(val, NSEC_PER_USEC);
+
+	if (rt_rq->rt_runtime > rt_rq->rt_time) {
+		val = rt_rq->rt_runtime - rt_rq->rt_time;
+		do_div(val, NSEC_PER_USEC);
+	} else
+		val = 0;
+	*runtime = val;
+
+	val = rt_rq->rt_deadline;
+	do_div(val, NSEC_PER_USEC);
+	*deadline = val;
+
+	return 0;
+}
+
 static int sched_rt_global_constraints(void)
 {
 	u64 runtime, period;
@@ -8048,6 +8071,121 @@ static u64 cpu_rt_task_period_read_uint(struct cgroup *cgrp, struct cftype *cft)
 {
 	return sched_group_rt_period(cgroup_tg(cgrp), 1);
 }
+
+#ifdef CONFIG_RT_GROUP_SPLITCPU
+static ssize_t cpu_rt_multicpu_runtime_read(struct cgroup *cgrp,
+					    struct cftype *cft,
+					    struct file *file,
+					    char __user *buf,
+					    size_t nbytes, loff_t *ppos)
+{
+	ssize_t rv, len = 0, tmplen = 25 * total_cpus;
+	struct task_group *tg = cgroup_tg(cgrp);
+	char *tmp;
+	int i;
+
+	tmp = kzalloc(tmplen, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	for_each_possible_cpu(i) {
+		len += snprintf(tmp, tmplen - len, "%llu ",
+				tg->rt_rq[i]->rt_runtime);
+	}
+
+	rv = simple_read_from_buffer(buf, nbytes, ppos, tmp, len);
+
+	kfree(tmp);
+
+	return rv;
+}
+
+static int cpu_rt_multicpu_runtime_write_string(struct cgroup *cgrp,
+						struct cftype *cft,
+						const char *buf)
+{
+	struct task_group *tg = cgroup_tg(cgrp);
+	const char *tmp = buf;
+	char *end;
+	int rv = -EINVAL;
+	u64 *runtimes;
+	int i;
+
+	runtimes = kzalloc(sizeof(u64) * total_cpus, GFP_KERNEL);
+	if (!runtimes)
+		return -ENOMEM;
+
+	for_each_possible_cpu(i) {
+		while (isspace(*tmp))
+			tmp++;
+		if (*tmp == 0)
+			goto out;
+		runtimes[i] = simple_strtoull(buf, &end, 0);
+		tmp += (end - tmp);
+	}
+
+	mutex_lock(&rt_constraints_mutex);
+	rt_reset_runtime();
+
+	for_each_possible_cpu(i)
+		tg->rt_rq[i]->rt_runtime = runtimes[i];
+	mutex_unlock(&rt_constraints_mutex);
+
+out:
+	kfree(runtimes);
+	return rv;
+}
+#endif
+
+#ifdef CONFIG_RT_GROUP_STATS
+static ssize_t cpu_rt_edf_stats(struct cgroup *cgrp, struct cftype *cft,
+				 struct file *file, char __user *buf,
+				 size_t nbytes, loff_t *ppos)
+{
+	ssize_t rv, len = 0, tmplen = 50 * total_cpus;
+	struct task_group *tg = cgroup_tg(cgrp);
+	char *tmp;
+	int i;
+
+	tmp = kzalloc(tmplen, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	for_each_possible_cpu(i) {
+		len += snprintf(tmp, tmplen - len, "%llu %llu ",
+				tg->rt_rq[i]->rt_stats_reset,
+				tg->rt_rq[i]->rt_stats_exceeded);
+	}
+
+	rv = simple_read_from_buffer(buf, nbytes, ppos, tmp, len);
+
+	kfree(tmp);
+
+	return rv;
+}
+#endif
+
+static ssize_t cpu_rt_edf_params(struct cgroup *cgrp, struct cftype *cft,
+				 struct file *file, char __user *buf,
+				 size_t nbytes, loff_t *ppos)
+{
+	char tmp[128];
+	long now, runtime, deadline;
+	int len, rv;
+
+	rv = sched_group_rt_edf_params(cgroup_tg(cgrp), 0, &now,
+				       &runtime, &deadline);
+	if (rv)
+		return rv;
+
+	len = snprintf(tmp, 128, "%llu %llu %llu\n",
+		       (unsigned long long)now,
+		       (unsigned long long)runtime,
+		       (unsigned long long)deadline);
+
+	return simple_read_from_buffer(buf, nbytes, ppos, tmp, len);
+}
+
 #endif /* CONFIG_RT_GROUP_SCHED */
 
 static struct cftype cpu_files[] = {
@@ -8094,6 +8232,23 @@ static struct cftype cpu_files[] = {
 		.name = "rt_task_period_us",
 		.read_u64 = cpu_rt_task_period_read_uint,
 		.write_u64 = cpu_rt_task_period_write_uint,
+	},
+#ifdef CONFIG_RT_GROUP_SPLITCPU
+	{
+		.name = "rt_multicpu_runtime_us",
+		.read = cpu_rt_multicpu_runtime_read,
+		.write_string = cpu_rt_multicpu_runtime_write_string,
+	},
+#endif
+#ifdef CONFIG_RT_GROUP_STATS
+	{
+		.name = "rt_edf_stats",
+		.read = cpu_rt_edf_stats,
+	},
+#endif
+	{
+		.name = "rt_edf_params",
+		.read = cpu_rt_edf_params,
 	},
 #endif
 	{ }	/* terminate */
