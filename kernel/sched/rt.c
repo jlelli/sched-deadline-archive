@@ -463,10 +463,8 @@ static inline void rt_period_set_expires(struct rt_rq *rt_rq, bool force)
 	struct rq *rq = rq_of_rt_rq(rt_rq);
 	ktime_t now, dline, delta;
 
-	if (hrtimer_active(&rt_rq->rt_period_timer) && !force) {
-		rt_rq->rt_needs_resync = true;
+	if (hrtimer_active(&rt_rq->rt_period_timer) && !force)
 		return;
-	}
 
 	/*
 	 * Compensate for discrepancies between rq->clock (used to
@@ -813,7 +811,7 @@ static inline bool move_runtime(struct rt_rq *rt_rq, struct rt_rq *iter,
 	 * them get refills of at least rt_b->rt_runtime.
 	 */
 	if (iter->rt_nr_running || hrtimer_active(&rt_rq->rt_period_timer))
-		leave = max(rt_b->rt_runtime, iter->rt_time);
+		leave = rt_b->rt_runtime;
 	else
 		leave = max(min_runtime, iter->rt_time);
 	diff = iter->rt_runtime - leave;
@@ -1223,22 +1221,33 @@ static enum hrtimer_restart sched_rt_period_timer(struct hrtimer *hrtimer)
 	int overrun;
 	bool idle = false;
 
+	if (rt_rq->rt_needs_resync) {
+		/*
+		 * Resync the period timer with the actual deadline;
+		 * we want to be careful and check again for overruns
+		 * and recharges.
+		 * Note that if rt_needs_resync is set we don't need
+		 * to recharge according to the old deadline, as the
+		 * deadline update path has reset deadline and rt_time
+		 * for us. In the common case we don't expect overruns,
+		 * as the new deadline should be in the future, so we
+		 * need to restart the timer only if the rt_rq is already
+		 * throttled; if this is not the case we handle the overruns
+		 * as usual, and they'll give us a new value for idle.
+		 */
+		idle = !rt_rq->rt_throttled;
+		rt_rq->rt_needs_resync = false;
+		rt_period_set_expires(rt_rq, true);
+	}
+
 	for (;;) {
 		overrun = hrtimer_forward_now(hrtimer, rt_rq->rt_period);
 
-		/* Recharge as if we expired overrun times. */
-		if (overrun)
+		if (overrun) {
+			/* Recharge as if we had expired overrun times. */
 			idle = do_sched_rt_period_timer(rt_rq, overrun);
 
-		if (rt_rq->rt_needs_resync) {
-			/*
-			 * Resync the period timer with the actual deadline;
-			 * we want to be careful and check again for overruns
-			 * and recharges.
-			 */
-			rt_rq->rt_needs_resync = false;
-			rt_period_set_expires(rt_rq, true);
-		} else if (!overrun) {
+		} else {
 			/*
 			 * No overruns, even after the eventual resync,
 			 * the timer is either ready or won't need to be
@@ -1642,6 +1651,10 @@ update:
 			rt_rq->rt_deadline += period;
 			rt_rq->rt_time -= runtime;
 		}
+
+		/* Let the timer handler know that it needs to resync. */
+		if (hrtimer_active(&rt_rq->rt_period_timer))
+			rt_rq->rt_needs_resync = true;
 	}
 	raw_spin_unlock(&rt_rq->rt_runtime_lock);
 }
@@ -1675,10 +1688,6 @@ static void enqueue_rt_rq(struct rt_rq *rt_rq, int old_boosted)
 		return;
 
 	if (!rt_rq->rt_nr_boosted) {
-		/*
-		 * When we update a deadline we may end up rebalancing, and
-		 * thus requeueing the rt_rq, so we need to revalidate on_rq.
-		 */
 		rt_rq_update_deadline(rt_rq);
 		on_rq = rt_rq_on_rq(rt_rq);
 	}
