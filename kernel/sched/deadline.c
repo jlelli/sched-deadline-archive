@@ -50,7 +50,7 @@ static inline int is_leftmost(struct task_struct *p, struct dl_rq *dl_rq)
 	return dl_rq->rb_leftmost == &dl_se->rb_node;
 }
 
-void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 period, u64 runtime)
+void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 runtime)
 {
 	raw_spin_lock_init(&dl_b->dl_runtime_lock);
 	dl_b->dl_runtime = runtime;

@@ -7296,8 +7296,7 @@ void __init sched_init(void)
 
 	init_rt_bandwidth(&def_rt_bandwidth,
 			global_rt_period(), global_rt_runtime());
-	init_dl_bandwidth(&def_dl_bandwidth,
-			global_rt_period(), global_dl_runtime());
+	init_dl_bandwidth(&def_dl_bandwidth, global_dl_runtime());
 
 #ifdef CONFIG_RT_GROUP_SCHED
 	init_rt_bandwidth(&root_task_group.rt_bandwidth,
