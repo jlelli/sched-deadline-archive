@@ -113,11 +113,12 @@ CONTENTS
  This means that, for a root_domain comprising M CPUs, -deadline tasks
  can be created until the sum of their bandwidths stay below:
 
-   M * (sched_dl_runtime_us / sched_rt_period_us)
+   M * (sched_dl_runtime_us * rt_bw)
 
  It is also possible to disable this bandwidth management logic, and
  be thus free of oversubscribing the system up to any arbitrary level.
- This is done by writing -1 in /proc/sys/kernel/sched_dl_runtime_us.
+ This is done by writing -1 in /proc/sys/kernel/sched_dl_runtime_us or
+ in /proc/sys/kernel/sched_rt_runtime_us.
 
 
 3.2 Task interface
