@@ -70,7 +70,7 @@ void cpudl_heapify(struct cpudl *cp, int idx)
 
 void cpudl_change_key(struct cpudl *cp, int idx, u64 new_dl)
 {
-	WARN_ON(idx > num_present_cpus() && idx != -1);
+	WARN_ON(idx > num_present_cpus() || idx == IDX_INVALID);
 
 	if (dl_time_before(new_dl, cp->elements[idx].dl)) {
 		cp->elements[idx].dl = new_dl;
@@ -143,6 +143,14 @@ void cpudl_set(struct cpudl *cp, int cpu, u64 dl, int is_valid)
 	old_idx = cp->cpu_to_idx[cpu];
 	if (!is_valid) {
 		/* remove item */
+		if (old_idx == IDX_INVALID) {
+			/* 
+			 * Nothing to remove if old_idx was invalid.
+			 * This could happen if a rq_offline_dl is
+			 * called for a CPU without -dl tasks running.
+			 */
+			goto out;
+		}
 		new_cpu = cp->elements[cp->size - 1].cpu;
 		cp->elements[old_idx].dl = cp->elements[cp->size - 1].dl;
 		cp->elements[old_idx].cpu = new_cpu;
