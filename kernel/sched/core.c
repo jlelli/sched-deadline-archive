@@ -7249,6 +7249,8 @@ LIST_HEAD(task_groups);
 
 DECLARE_PER_CPU(cpumask_var_t, load_balance_tmpmask);
 
+static u64 actual_dl_runtime(void);
+
 void __init sched_init(void)
 {
 	int i, j;
@@ -7296,7 +7298,7 @@ void __init sched_init(void)
 
 	init_rt_bandwidth(&def_rt_bandwidth,
 			global_rt_period(), global_rt_runtime());
-	init_dl_bandwidth(&def_dl_bandwidth, global_dl_runtime());
+	init_dl_bandwidth(&def_dl_bandwidth, actual_dl_runtime());
 
 #ifdef CONFIG_RT_GROUP_SCHED
 	init_rt_bandwidth(&root_task_group.rt_bandwidth,
@@ -7719,7 +7721,7 @@ static int check_dl_bw(void)
 {
 	int i;
 	u64 period = global_rt_period();
-	u64 dl_actual_runtime = actual_dl_runtime();
+	u64 dl_actual_runtime = def_dl_bandwidth.dl_runtime;
 	u64 new_bw = to_ratio(period, dl_actual_runtime);
 
 	/*
@@ -7753,13 +7755,13 @@ static void update_dl_bw(void)
 	u64 new_bw;
 	int i;
 
-	def_dl_bandwidth.dl_runtime = global_dl_runtime();
-	if (global_dl_runtime() == RUNTIME_INF ||
+	def_dl_bandwidth.dl_runtime = actual_dl_runtime();
+	if (def_dl_bandwidth.dl_runtime == RUNTIME_INF ||
 	    global_rt_runtime() == RUNTIME_INF)
 		new_bw = -1;
 	else {
 		new_bw = to_ratio(global_rt_period(),
-				  actual_dl_runtime());
+				  def_dl_bandwidth.dl_runtime);
 	}
 	/*
 	 * FIXME: As above...
@@ -8044,7 +8046,7 @@ static bool __sched_dl_global_constraints(u64 runtime, u64 period)
 static int sched_dl_global_constraints(void)
 {
 	u64 period = global_rt_period();
-	u64 dl_actual_runtime = actual_dl_runtime();
+	u64 dl_actual_runtime = def_dl_bandwidth.dl_runtime;
 	int ret;
 
 	ret = __sched_dl_global_constraints(dl_actual_runtime, period);
