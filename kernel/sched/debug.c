@@ -253,6 +253,45 @@ void print_rt_rq(struct seq_file *m, int cpu, struct rt_rq *rt_rq)
 #undef P
 }
 
+extern struct sched_dl_entity *__pick_dl_last_entity(struct dl_rq *dl_rq);
+extern void print_dl_stats(struct seq_file *m, int cpu);
+
+void print_dl_rq(struct seq_file *m, int cpu, struct dl_rq *dl_rq)
+{
+	s64 min_deadline = -1, max_deadline = -1;
+	struct rq *rq = cpu_rq(cpu);
+	struct sched_dl_entity *last;
+	unsigned long flags;
+
+	SEQ_printf(m, "\ndl_rq[%d]:\n", cpu);
+
+	raw_spin_lock_irqsave(&rq->lock, flags);
+	if (dl_rq->rb_leftmost)
+		min_deadline = (rb_entry(dl_rq->rb_leftmost,
+					 struct sched_dl_entity,
+					 rb_node))->deadline;
+	last = __pick_dl_last_entity(dl_rq);
+	if (last)
+		max_deadline = last->deadline;
+	raw_spin_unlock_irqrestore(&rq->lock, flags);
+
+#define P(x) \
+	SEQ_printf(m, "  .%-30s: %Ld\n", #x, (long long)(dl_rq->x))
+#define __PN(x) \
+	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", #x, SPLIT_NS(x))
+#define PN(x) \
+	SEQ_printf(m, "  .%-30s: %Ld.%06ld\n", #x, SPLIT_NS(dl_rq->x))
+
+	P(dl_nr_running);
+	PN(exec_clock);
+	__PN(min_deadline);
+	__PN(max_deadline);
+
+#undef PN
+#undef __PN
+#undef P
+}
+
 extern __read_mostly int sched_clock_running;
 
 static void print_cpu(struct seq_file *m, int cpu)
@@ -320,6 +359,7 @@ do {									\
 	spin_lock_irqsave(&sched_debug_lock, flags);
 	print_cfs_stats(m, cpu);
 	print_rt_stats(m, cpu);
+	print_dl_stats(m, cpu);
 
 	rcu_read_lock();
 	print_rq(m, rq, cpu);
@@ -540,6 +580,12 @@ void proc_sched_show_task(struct task_struct *p, struct seq_file *m)
 	P(se.statistics.nr_wakeups_affine_attempts);
 	P(se.statistics.nr_wakeups_passive);
 	P(se.statistics.nr_wakeups_idle);
+	if (dl_task(p)) {
+		PN(dl.stats.last_dmiss);
+		PN(dl.stats.dmiss_max);
+		PN(dl.stats.last_rorun);
+		PN(dl.stats.rorun_max);
+	}
 
 	{
 		u64 avg_atom, avg_per_cpu;
