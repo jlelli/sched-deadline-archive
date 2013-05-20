@@ -86,10 +86,8 @@ extern int sysctl_sched_rt_runtime;
 /*
  *  control SCHED_DEADLINE reservations:
  *
- *  /proc/sys/kernel/sched_dl_period_us
  *  /proc/sys/kernel/sched_dl_runtime_us
  */
-extern unsigned int sysctl_sched_dl_period;
 extern int sysctl_sched_dl_runtime;
 
 #ifdef CONFIG_CFS_BANDWIDTH
