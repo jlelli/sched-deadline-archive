@@ -1471,6 +1471,7 @@ dec_rt_prio(struct rt_rq *rt_rq, int prio)
 {
 	int prev_prio = rt_rq->highest_prio;
 	struct rq *rq = rq_of_rt_rq(rt_rq);
+	struct rt_rq *iter;
 
 	if (rt_rq->rt_nr_running) {
 
@@ -1494,9 +1495,9 @@ dec_rt_prio(struct rt_rq *rt_rq, int prio)
 	if (prio == prev_prio) {
 		prio = MAX_RT_PRIO;
 
-		for_each_leaf_rt_rq(rt_rq, rq) {
-			if (rt_rq->highest_prio < prio)
-				prio = rt_rq->highest_prio;
+		for_each_leaf_rt_rq(iter, rq) {
+			if (iter->highest_prio < prio)
+				prio = iter->highest_prio;
 		}
 		rq->rt.highest_prio.curr = prio;
 	}
