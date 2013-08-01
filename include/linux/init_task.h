@@ -191,6 +191,10 @@ extern struct task_group root_task_group;
 	.tasks		= LIST_HEAD_INIT(tsk.tasks),			\
 	INIT_PUSHABLE_TASKS(tsk)					\
 	INIT_CGROUP_SCHED(tsk)						\
+	.proxying_for	= NULL,						\
+	.proxied_by	= NULL,						\
+	.proxies	= LIST_HEAD_INIT(tsk.proxies),			\
+	.proxies_entry	= LIST_HEAD_INIT(tsk.proxies_entry),		\
 	.ptraced	= LIST_HEAD_INIT(tsk.ptraced),			\
 	.ptrace_entry	= LIST_HEAD_INIT(tsk.ptrace_entry),		\
 	.real_parent	= &tsk,						\

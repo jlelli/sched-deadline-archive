@@ -235,6 +235,11 @@ extern char ___assert_task_state[1 - 2*!!(
 				((task->state & TASK_UNINTERRUPTIBLE) != 0 && \
 				 (task->flags & PF_FROZEN) == 0)
 
+#define task_is_proxied(task)	((task)->proxied_by != NULL)
+#define task_is_proxying(task)	((task)->proxying_for != NULL)
+#define get_proxied_task(task)	(task_is_proxied(task) ? (task)->proxied_by : task)
+#define __get_proxying(task)	((task)->proxying_for)
+
 #define __set_task_state(tsk, state_value)		\
 	do { (tsk)->state = (state_value); } while (0)
 #define set_task_state(tsk, state_value)		\
@@ -1232,6 +1237,20 @@ struct task_struct {
 
 	pid_t pid;
 	pid_t tgid;
+
+	/* Proxy Execution
+	 * @proxying_for: when this task is scheduled it actually puts on the CPU
+	 *                the pointed task
+	 * @proxied_by: this task is currently proxied by the pointed task
+	 * @proxies: this task can have more than one possible proxies, pick one
+	 *           from this list when deciding which one is the current
+	 * @proxies_entry: this task link on the p->parent->proxies list
+	 */
+	struct task_struct *proxying_for;
+	struct task_struct *proxied_by;
+
+	struct list_head proxies;
+	struct list_head proxies_entry;
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 	/* Canary value for the -fstack-protector gcc feature */

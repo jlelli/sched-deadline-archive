@@ -3385,6 +3385,18 @@ static struct task_struct *find_process_by_pid(pid_t pid)
 	return pid ? find_task_by_vpid(pid) : current;
 }
 
+/**
+ * get_proxing - find who task is proxing for.
+ * @task: the task in question.
+ */
+static inline struct task_struct* get_proxying(struct task_struct* task)
+{
+	while (task_is_proxying(task))
+		task = __get_proxying(task);
+
+	return task;
+}
+
 /* Actually do priority change: must hold rq lock. */
 static void
 __setscheduler(struct rq *rq, struct task_struct *p, int policy, int prio)
