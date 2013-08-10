@@ -1373,6 +1373,17 @@ xfs_finish_flags(
 	}
 
 	/*
+	 * V5 filesystems always use attr2 format for attributes.
+	 */
+	if (xfs_sb_version_hascrc(&mp->m_sb) &&
+	    (mp->m_flags & XFS_MOUNT_NOATTR2)) {
+		xfs_warn(mp,
+"Cannot mount a V5 filesystem as %s. %s is always enabled for V5 filesystems.",
+			MNTOPT_NOATTR2, MNTOPT_ATTR2);
+		return XFS_ERROR(EINVAL);
+	}
+
+	/*
 	 * mkfs'ed attr2 will turn on attr2 mount unless explicitly
 	 * told by noattr2 to turn it off
 	 */
@@ -1561,6 +1572,7 @@ static struct file_system_type xfs_fs_type = {
 	.kill_sb		= kill_block_super,
 	.fs_flags		= FS_REQUIRES_DEV,
 };
+MODULE_ALIAS_FS("xfs");
 
 STATIC int __init
 xfs_init_zones(void)

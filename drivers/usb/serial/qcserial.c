@@ -118,6 +118,7 @@ static const struct usb_device_id id_table[] = {
 	{USB_DEVICE(0x1199, 0x901b)},	/* Sierra Wireless MC7770 */
 	{USB_DEVICE(0x12D1, 0x14F0)},	/* Sony Gobi 3000 QDL */
 	{USB_DEVICE(0x12D1, 0x14F1)},	/* Sony Gobi 3000 Composite */
+	{USB_DEVICE(0x0AF0, 0x8120)},	/* Option GTM681W */
 
 	/* non Gobi Qualcomm serial devices */
 	{USB_DEVICE_INTERFACE_NUMBER(0x0f3d, 0x68a2, 0)},	/* Sierra Wireless MC7700 Device Management */
@@ -197,12 +198,15 @@ static int qcprobe(struct usb_serial *serial, const struct usb_device_id *id)
 
 	if (is_gobi1k) {
 		/* Gobi 1K USB layout:
-		 * 0: serial port (doesn't respond)
+		 * 0: DM/DIAG (use libqcdm from ModemManager for communication)
 		 * 1: serial port (doesn't respond)
 		 * 2: AT-capable modem port
 		 * 3: QMI/net
 		 */
-		if (ifnum == 2)
+		if (ifnum == 0) {
+			dev_dbg(dev, "Gobi 1K DM/DIAG interface found\n");
+			altsetting = 1;
+		} else if (ifnum == 2)
 			dev_dbg(dev, "Modem port found\n");
 		else
 			altsetting = -1;
