@@ -1244,13 +1244,11 @@ struct task_struct {
 	 * @proxied_by: this task is currently proxied by the pointed task
 	 * @proxies: this task can have more than one possible proxies, pick one
 	 *           from this list when deciding which one is the current
-	 * @proxies_entry: this task link on the p->parent->proxies list
 	 */
 	struct task_struct *proxying_for;
 	struct task_struct *proxied_by;
 
 	struct list_head proxies;
-	struct list_head proxies_entry;
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 	/* Canary value for the -fstack-protector gcc feature */
