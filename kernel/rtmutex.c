@@ -516,6 +516,11 @@ static int task_blocks_on_rt_mutex(struct rt_mutex *lock,
 	__rt_mutex_adjust_prio(task);
 	waiter->task = task;
 	waiter->lock = lock;
+
+	/* MBWI TODO
+	 * task is added to owner's proxies list.
+	 */
+	set_proxy_execution(owner, task);
 	
 	/* Get the top priority waiter on the lock */
 	if (rt_mutex_has_waiters(lock))
@@ -588,6 +593,14 @@ static void wakeup_next_waiter(struct rt_mutex *lock)
 
 	rt_mutex_set_owner(lock, NULL);
 
+	/* MBWI TODO
+	 * Remove current's proxies and give them to waiter; so that,
+	 * when waiter is woken up (right below) all proxies are woken
+	 * up before him. waiter is going to try to use its original
+	 * server right after wake up (it was top_waiter); in case it is
+	 * throttled, it will execute using some other proxy's server.
+	 */
+	clear_proxy_execution(current, waiter->task);
 	raw_spin_unlock_irqrestore(&current->pi_lock, flags);
 
 	wake_up_process(waiter->task);

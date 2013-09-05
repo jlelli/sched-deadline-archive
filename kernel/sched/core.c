@@ -2476,8 +2476,12 @@ pick_next_task(struct rq *rq)
 }
 
 /**
- * get_proxing - find who task is proxing for.
+ * get_proxing - find who task is proxing for (potentially following the
+ *		 chain).
  * @task: the task in question.
+ *
+ * Returns the active task (there is only one) proxied by the proxy
+ * (proxies chain).
  */
 static inline struct task_struct* get_proxying(struct task_struct* task)
 {
@@ -2485,6 +2489,61 @@ static inline struct task_struct* get_proxying(struct task_struct* task)
 		task = __get_proxying(task);
 
 	return task;
+}
+
+/**
+ * set_proxy_execution - adds a task as proxy of an other.
+ * @task: the task that is going to be proxied.
+ * @proxy: its new proxy.
+ *
+ * TODO: what about locking?!
+ */
+void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
+{
+	struct task_struct *actual_proxied, *tpi, *tpi_h;
+
+	proxy->proxying_for = task;
+	actual_proxied = get_proxying(task);
+
+	/*
+	 * proxy, and all its proxies, have to be new proxies for the head
+	 * of the chain.
+	 */
+	list_add(&proxy->proxies, &actual_proxied->proxies);
+	list_for_each_entry_safe(tpi, tpi_h, &proxy->proxies, proxies) {
+		list_move(&tpi->proxies, &actual_proxied->proxies);
+	}
+}
+
+/**
+ * clear_proxy_execution - clears a task proxies list and gives it to
+ * 			   the next proxied task.
+ * @task: the task that is going to stop being proxied.
+ * @next_proxies: who receives task's proxies list.
+ *
+ * TODO: what about locking?!
+ */
+void clear_proxy_execution(struct task_struct *task,
+			   struct task_struct *next_proxied)
+{
+	struct task_struct *tpi, *tpi_h;
+
+	/*
+	 * MBWI TODO
+	 * task ceases to be proxied. next_proxied ceases to be a proxy (of
+	 * task) and becomes the next task to be proxied (since it was the top_
+	 * waiter and it's gonna be the new lock holder). It inherits all the
+	 * proxies of task.
+	 */
+
+	task->proxied_by = NULL;
+	next_proxied->proxying_for = NULL;
+	list_del(&next_proxied->proxies);
+
+	list_for_each_entry_safe(tpi, tpi_h, &task->proxies, proxies) {
+		tpi->proxying_for = next_proxied;
+		list_move(&tpi->proxies, &next_proxied->proxies);
+	}
 }
 
 /*

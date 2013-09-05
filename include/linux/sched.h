@@ -1140,6 +1140,11 @@ enum perf_event_task_context {
 	perf_nr_task_contexts,
 };
 
+extern void set_proxy_execution(struct task_struct *task,
+				struct task_struct *proxy);
+extern void clear_proxy_execution(struct task_struct *task,
+				  struct task_struct *next_proxied);
+
 struct task_struct {
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
 	void *stack;
