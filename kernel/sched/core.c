@@ -2496,7 +2496,9 @@ static inline struct task_struct* get_proxying(struct task_struct* task)
  * @task: the task that is going to be proxied.
  * @proxy: its new proxy.
  *
- * TODO: what about locking?!
+ * Locking: called with wait_lock held by task and pi_lock held by
+ * proxy. Priority chain (and thus poxies list) can't be modified
+ * and task can't disappear while adding new proxies to its list.
  */
 void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 {
@@ -2521,7 +2523,8 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
  * @task: the task that is going to stop being proxied.
  * @next_proxies: who receives task's proxies list.
  *
- * TODO: what about locking?!
+ * Locking: called with task's pi_lock held (it is releasing a lock) and
+ * while next_proxied is sleeping (what if he is woken up by a signal?).
  */
 void clear_proxy_execution(struct task_struct *task,
 			   struct task_struct *next_proxied)
@@ -2529,7 +2532,6 @@ void clear_proxy_execution(struct task_struct *task,
 	struct task_struct *tpi, *tpi_h;
 
 	/*
-	 * MBWI TODO
 	 * task ceases to be proxied. next_proxied ceases to be a proxy (of
 	 * task) and becomes the next task to be proxied (since it was the top_
 	 * waiter and it's gonna be the new lock holder). It inherits all the
@@ -2544,6 +2546,28 @@ void clear_proxy_execution(struct task_struct *task,
 		tpi->proxying_for = next_proxied;
 		list_move(&tpi->proxies, &next_proxied->proxies);
 	}
+}
+
+/**
+ * pick_task_proxy - pick one proxy from task's proxies list as the current
+ * 		     proxy for task. Force a reschedule on proxy's CPU to
+ *		     start executing task there.
+ * @task: the task that is going to be actively proxied by the picked proxy.
+ */
+void pick_task_proxy(struct task_struct *task)
+{
+	struct task_struct *proxy;
+
+	proxy = list_first_entry(&task->proxies, struct task_struct, proxies);	
+	task->proxied_by = proxy;
+
+	/*
+	 * We force a reschedule only if proxy is currently executing on its
+	 * CPU, otherwise we wait for the next scheduling event (since proxy
+	 * wouldn't be scheduled anyway).
+	 */
+	if (task_running(task_rq(proxy), proxy))
+		resched_task(proxy);
 }
 
 /*
@@ -2639,7 +2663,8 @@ proxy_retry:
 	if (task_is_proxying(next)) {
 		struct task_struct *tp;
 
-		/* next is proxying tp. If tp is sleeping we have to dequeue
+		/*
+		 * next is proxying tp. If tp is sleeping we have to dequeue
 		 * all its proxies now, since we didn't do it when tp went to
 		 * sleep.
 		 */
@@ -2649,6 +2674,15 @@ proxy_retry:
 			next->on_rq = 0;
 			goto proxy_retry;
 		}
+
+		/*
+		 * next has been selected for execution, but it is the current
+		 * proxy of tp. tp is run instead of next, but next's
+		 * parameters are used for actual scheduling (depending on the
+		 * scheduling class).
+		 */
+		if (task_is_proxied(tp) && tp == get_proxied_task(next))
+			next = tp;
 	}
 	clear_tsk_need_resched(prev);
 	rq->skip_clock_update = 0;
