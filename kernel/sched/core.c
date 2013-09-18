@@ -1604,9 +1604,11 @@ int wake_up_process(struct task_struct *p)
 	 * All proxies for p must be woken up before p is actually woken
 	 * up.
 	 */
-	list_for_each_entry(proxy, &p->proxies, proxies) {
-		if (!proxy->on_rq)
+	list_for_each_entry(proxy, &p->proxies, proxy_node) {
+		if (!proxy->on_rq) {
+			trace_printk("waking up proxy %s\n", proxy->comm);
 			ret = try_to_wake_up(proxy, TASK_NORMAL, 0);
+		}
 
 	/**
 	 * TODO what happens if some task succeed and some fail?
@@ -2504,16 +2506,23 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 {
 	struct task_struct *actual_proxied, *tpi, *tpi_h;
 
+	trace_printk("adding %d (dl %llu) as proxy for task %d\n", proxy->pid,
+		     proxy->dl.deadline, task->pid);
+	printk("adding %d (dl %llu) as proxy for task %d\n", proxy->pid,
+		     proxy->dl.deadline, task->pid);
 	proxy->proxying_for = task;
 	actual_proxied = get_proxying(task);
+	trace_printk("task %d is actually proxying task %d\n", task->pid,
+	       actual_proxied->pid);
 
 	/*
 	 * proxy, and all its proxies, have to be new proxies for the head
 	 * of the chain.
 	 */
-	list_add(&proxy->proxies, &actual_proxied->proxies);
-	list_for_each_entry_safe(tpi, tpi_h, &proxy->proxies, proxies) {
-		list_move(&tpi->proxies, &actual_proxied->proxies);
+	trace_printk("adding %d as proxy for %d\n", proxy->pid, actual_proxied->pid);
+	list_add(&proxy->proxy_node, &actual_proxied->proxies);
+	list_for_each_entry_safe(tpi, tpi_h, &proxy->proxies, proxy_node) {
+		list_move(&tpi->proxy_node, &actual_proxied->proxies);
 	}
 }
 
@@ -2540,11 +2549,17 @@ void clear_proxy_execution(struct task_struct *task,
 
 	task->proxied_by = NULL;
 	next_proxied->proxying_for = NULL;
-	list_del(&next_proxied->proxies);
+	trace_printk("removing %d as proxy for %d\n", next_proxied->pid, task->pid);
+	printk("removing %d as proxy for %d\n", next_proxied->pid, task->pid);
+	list_del(&next_proxied->proxy_node);
 
-	list_for_each_entry_safe(tpi, tpi_h, &task->proxies, proxies) {
+	trace_printk("moving %d's proxies list to %d\n", task->pid, 
+	       next_proxied->pid);
+	list_for_each_entry_safe(tpi, tpi_h, &task->proxies, proxy_node) {
 		tpi->proxying_for = next_proxied;
-		list_move(&tpi->proxies, &next_proxied->proxies);
+		list_move(&tpi->proxy_node, &next_proxied->proxies);
+		trace_printk("%d moved to %d's proxies list\n", tpi->pid, 
+			next_proxied->pid);
 	}
 }
 
@@ -2558,16 +2573,35 @@ void pick_task_proxy(struct task_struct *task)
 {
 	struct task_struct *proxy;
 
-	proxy = list_first_entry(&task->proxies, struct task_struct, proxies);	
-	task->proxied_by = proxy;
+	task->proxied_by = NULL;
+	list_for_each_entry(proxy, &task->proxies, proxy_node) {
+		if (!proxy->dl.dl_throttled) {
+			printk("proxy %d is not throttled\n", proxy->pid);
+			task->proxied_by = proxy;
+			break;
+		}
+	}
+
+	if (task_is_proxied(task)) {
+		trace_printk("proxy %d picked for task %d\n", proxy->pid,
+			     task->pid);
+		printk("proxy %d picked for task %d\n", proxy->pid, task->pid);
+
+		activate_task(task_rq(proxy), proxy, 0);
+		proxy->on_rq = 1;
+		resched_task(proxy);
+	} else
+		return;
 
 	/*
 	 * We force a reschedule only if proxy is currently executing on its
 	 * CPU, otherwise we wait for the next scheduling event (since proxy
 	 * wouldn't be scheduled anyway).
 	 */
-	if (task_running(task_rq(proxy), proxy))
-		resched_task(proxy);
+	//if (task_running(task_rq(proxy), proxy)) {
+	//	trace_printk("proxy %d was executing: reschedule\n", proxy->pid);
+	//	resched_task(proxy);
+	//}
 }
 
 /*
@@ -2663,12 +2697,16 @@ proxy_retry:
 	if (task_is_proxying(next)) {
 		struct task_struct *tp;
 
+		printk("task %d is a proxy for task %d\n", next->pid,
+		       get_proxying(next)->pid);
 		/*
 		 * next is proxying tp. If tp is sleeping we have to dequeue
 		 * all its proxies now, since we didn't do it when tp went to
 		 * sleep.
 		 */
 		tp = get_proxying(next);
+
+		//TODO move this up above
 		if (!tp->on_rq) {
 			deactivate_task(rq, next, DEQUEUE_SLEEP);
 			next->on_rq = 0;
@@ -2681,8 +2719,15 @@ proxy_retry:
 		 * parameters are used for actual scheduling (depending on the
 		 * scheduling class).
 		 */
-		if (task_is_proxied(tp) && tp == get_proxied_task(next))
+		if (task_is_proxied(tp) && next == get_proxied_task(tp)) {
+			trace_printk("%d selected for execution, but it is"
+				     " going to proxy for %d\n", next->pid,
+				     tp->pid);
+			printk("%d selected for execution, but it is"
+				     " going to proxy for %d\n", next->pid,
+				     tp->pid);
 			next = tp;
+		}
 	}
 	clear_tsk_need_resched(prev);
 	rq->skip_clock_update = 0;
@@ -3330,7 +3375,7 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 			dl_entity_preempt(&p->pi_top_task->dl, &p->dl))) {
 			p->dl.dl_boosted = 1;
 			p->dl.dl_throttled = 0;
-			enqueue_flag = ENQUEUE_REPLENISH;
+			//enqueue_flag = ENQUEUE_REPLENISH;
 		} else
 			p->dl.dl_boosted = 0;
 		p->sched_class = &dl_sched_class;

@@ -1256,6 +1256,7 @@ struct task_struct {
 	struct task_struct *proxied_by;
 
 	struct list_head proxies;
+	struct list_head proxy_node;
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 	/* Canary value for the -fstack-protector gcc feature */

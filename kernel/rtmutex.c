@@ -517,11 +517,6 @@ static int task_blocks_on_rt_mutex(struct rt_mutex *lock,
 	waiter->task = task;
 	waiter->lock = lock;
 
-	/* 
-	 * MBWI: task is added to owner's proxies list.
-	 */
-	set_proxy_execution(owner, task);
-	
 	/* Get the top priority waiter on the lock */
 	if (rt_mutex_has_waiters(lock))
 		top_waiter = rt_mutex_top_waiter(lock);
@@ -534,6 +529,18 @@ static int task_blocks_on_rt_mutex(struct rt_mutex *lock,
 	if (!owner)
 		return 0;
 
+	trace_printk("task %d blocks on mutex (held by %d)\n", task->pid,
+	       owner->pid);
+	printk("task %d blocks on mutex (held by %d)\n", task->pid,
+	       owner->pid);
+	printk("task %d state: state %d, on_rq %d, on_cpu %d\n", task->pid,
+	       task->state, task->on_rq, task->on_cpu);
+
+	/* 
+	 * MBWI: task is added to owner's proxies list.
+	 */
+	set_proxy_execution(owner, task);
+	
 	if (waiter == rt_mutex_top_waiter(lock)) {
 		raw_spin_lock_irqsave(&owner->pi_lock, flags);
 		rt_mutex_dequeue_pi(owner, top_waiter);
@@ -600,6 +607,8 @@ static void wakeup_next_waiter(struct rt_mutex *lock)
 	 * after wake up (it was top_waiter); in case it is throttled, it will
 	 * execute using some other proxy's server.
 	 */
+	trace_printk("task %d is going to take mutex (previously held by %d)\n",
+	       waiter->task->pid, current->pid);
 	clear_proxy_execution(current, waiter->task);
 	raw_spin_unlock_irqrestore(&current->pi_lock, flags);
 
@@ -838,6 +847,7 @@ rt_mutex_slowunlock(struct rt_mutex *lock)
 		return;
 	}
 
+	trace_printk("task %d releases mutex\n", current->pid);
 	wakeup_next_waiter(lock);
 
 	raw_spin_unlock(&lock->wait_lock);

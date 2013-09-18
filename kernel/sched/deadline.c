@@ -331,6 +331,14 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 		dl_se->deadline = rq->clock + dl_se->dl_deadline;
 		dl_se->runtime = dl_se->dl_runtime;
 	}
+
+
+	trace_printk("task %d's server (proxying %d) replenished\n",
+		     dl_task_of(dl_se)->pid,
+		     get_proxied_task(dl_task_of(dl_se))->pid);
+	printk("task %d's server (proxying %d) replenished\n",
+	       dl_task_of(dl_se)->pid,
+	       get_proxied_task(dl_task_of(dl_se))->pid);
 }
 
 /*
@@ -483,8 +491,11 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 						     struct sched_dl_entity,
 						     dl_timer);
 	struct task_struct *p = dl_task_of(dl_se);
+	struct task_struct *proxy = get_proxied_task(p);
 	struct rq *rq = task_rq(p);
 	raw_spin_lock(&rq->lock);
+
+	trace_printk("task %d's se dl_task_timer fired\n", p->pid);
 
 	/*
 	 * We need to take care of a possible races here. In fact, the
@@ -497,6 +508,8 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 
 	dl_se->dl_throttled = 0;
 	if (p->on_rq) {
+		trace_printk("task %d's se (proxying %d) replenished\n", p->pid,
+			     proxy->pid);
 		enqueue_task_dl(rq, p, ENQUEUE_REPLENISH);
 		if (task_has_dl_policy(rq->curr))
 			check_preempt_curr_dl(rq, p, 0);
@@ -614,15 +627,36 @@ static void update_curr_dl(struct rq *rq)
 
 	dl_se->runtime -= delta_exec;
 	if (dl_runtime_exceeded(rq, dl_se)) {
+		trace_printk("task %d's se exceeded its runtime ", proxy->pid);
+		printk("task %d's se exceeded its runtime ", proxy->pid);
+		if (task_is_proxied(curr)) {
+			trace_printk("while proxying %d\n", curr->pid);
+			printk("while proxying %d\n", curr->pid);
+			printk("deactivating %d's proxy %d (thottling)\n",
+			       curr->pid, proxy->pid);
+			//deactivate_task(task_rq(proxy), proxy, 0);
+			proxy->on_rq = 0;
+		}
 		__dequeue_task_dl(rq, proxy, 0);
-		if (likely(start_dl_timer(dl_se)))
+		if (likely(start_dl_timer(dl_se))) {
+			trace_printk("replenishment timer started for task %d's"
+				     " server, proxying task %d\n", proxy->pid,
+				     curr->pid);
 			dl_se->dl_throttled = 1;
-		else
-			enqueue_task_dl(rq, curr, ENQUEUE_REPLENISH);
+		}
+		else {
+			trace_printk("replenishment timer not started for task %d's"
+				     " server, proxying task %d\n", proxy->pid,
+				     curr->pid);
+			enqueue_task_dl(rq, proxy, ENQUEUE_REPLENISH);
+		}
 
-		if (!is_leftmost(curr, &rq->dl))
-			resched_task(curr);
+		if (!is_leftmost(proxy, &rq->dl))
+			resched_task(proxy);
 	}
+
+	trace_printk("sched entity of task %d (rt %llu, dl %llu)\n",
+		     proxy->pid, dl_se->runtime, dl_se->deadline);
 }
 
 #ifdef CONFIG_SMP
@@ -1010,6 +1044,8 @@ struct task_struct *pick_next_task_dl(struct rq *rq)
 
 	p = dl_task_of(dl_se);
 	p->se.exec_start = rq->clock_task;
+	trace_printk("task %d (proxying %d) runs (dl %llu)\n", p->pid,
+		     get_proxied_task(p)->pid, dl_se->deadline);
 
 	/* Running task will never be pushed. */
 	if (p)
@@ -1030,6 +1066,21 @@ struct task_struct *pick_next_task_dl(struct rq *rq)
 static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
 {
 	update_curr_dl(rq);
+
+	/*
+	 * If p was executing in some of its proxies, that proxy must
+	 * first be deactivated, since has been preempted. Later on
+	 * p could execute in some other server, or wait in the ready
+	 * queue with the same one.
+	 */
+	if (task_is_proxied(p)) {
+		struct task_struct *proxy = get_proxied_task(p);
+
+		printk("deactivating %d's proxy %d (preempt)\n", p->pid,
+			proxy->pid);
+		deactivate_task(task_rq(proxy), proxy, 0);
+		proxy->on_rq = 0;
+	}
 
 	/*
 	 * If p, that is gonna be preempted, has some proxy spinning, pick
