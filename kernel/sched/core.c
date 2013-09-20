@@ -2485,7 +2485,7 @@ pick_next_task(struct rq *rq)
  * Returns the active task (there is only one) proxied by the proxy
  * (proxies chain).
  */
-static inline struct task_struct* get_proxying(struct task_struct* task)
+inline struct task_struct* get_proxying(struct task_struct* task)
 {
 	while (task_is_proxying(task))
 		task = __get_proxying(task);
@@ -2508,9 +2508,8 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 
 	trace_printk("adding %d (dl %llu) as proxy for task %d\n", proxy->pid,
 		     proxy->dl.deadline, task->pid);
-	printk("adding %d (dl %llu) as proxy for task %d\n", proxy->pid,
-		     proxy->dl.deadline, task->pid);
 	proxy->proxying_for = task;
+
 	actual_proxied = get_proxying(task);
 	trace_printk("task %d is actually proxying task %d\n", task->pid,
 	       actual_proxied->pid);
@@ -2523,6 +2522,25 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 	list_add(&proxy->proxy_node, &actual_proxied->proxies);
 	list_for_each_entry_safe(tpi, tpi_h, &proxy->proxies, proxy_node) {
 		list_move(&tpi->proxy_node, &actual_proxied->proxies);
+	}
+
+	/*
+	 * task just got a new proxy. If task's current server is waiting for
+	 * replenishment, start executing task in new proxy's server.
+	 */
+	if (get_proxied_task(task)->dl.dl_throttled) {
+		trace_printk("task %d's current server is throttled!\n",
+			     task->pid);
+		raw_spin_lock(&task_rq(task)->lock);
+		if (task_is_proxied(task)) {
+			struct task_struct *proxy = get_proxied_task(task);
+
+			deactivate_task(task_rq(proxy), proxy, 0);
+			proxy->on_rq = 0;
+			task->proxied_by = NULL;
+		}
+		pick_task_proxy(task);
+		raw_spin_unlock(&task_rq(task)->lock);
 	}
 }
 
@@ -2550,7 +2568,6 @@ void clear_proxy_execution(struct task_struct *task,
 	task->proxied_by = NULL;
 	next_proxied->proxying_for = NULL;
 	trace_printk("removing %d as proxy for %d\n", next_proxied->pid, task->pid);
-	printk("removing %d as proxy for %d\n", next_proxied->pid, task->pid);
 	list_del(&next_proxied->proxy_node);
 
 	trace_printk("moving %d's proxies list to %d\n", task->pid, 
@@ -2573,22 +2590,30 @@ void pick_task_proxy(struct task_struct *task)
 {
 	struct task_struct *proxy;
 
-	task->proxied_by = NULL;
+	/*
+	 * Search best server among task's proxies.
+	 */
 	list_for_each_entry(proxy, &task->proxies, proxy_node) {
 		if (!proxy->dl.dl_throttled) {
-			printk("proxy %d is not throttled\n", proxy->pid);
 			task->proxied_by = proxy;
 			break;
 		}
 	}
 
+	/*
+	 * Is it better than task's original server?
+	 */
+	if (dl_entity_preempt(&task->dl, &proxy->dl) && !(task->dl.dl_throttled)) 
+		task->proxied_by = NULL;
+
 	if (task_is_proxied(task)) {
 		trace_printk("proxy %d picked for task %d\n", proxy->pid,
 			     task->pid);
-		printk("proxy %d picked for task %d\n", proxy->pid, task->pid);
 
-		activate_task(task_rq(proxy), proxy, 0);
-		proxy->on_rq = 1;
+		if (!proxy->on_rq) {
+			activate_task(task_rq(proxy), proxy, 0);
+			proxy->on_rq = 1;
+		}
 		resched_task(proxy);
 	} else
 		return;
@@ -2697,8 +2722,6 @@ proxy_retry:
 	if (task_is_proxying(next)) {
 		struct task_struct *tp;
 
-		printk("task %d is a proxy for task %d\n", next->pid,
-		       get_proxying(next)->pid);
 		/*
 		 * next is proxying tp. If tp is sleeping we have to dequeue
 		 * all its proxies now, since we didn't do it when tp went to
@@ -2721,9 +2744,6 @@ proxy_retry:
 		 */
 		if (task_is_proxied(tp) && next == get_proxied_task(tp)) {
 			trace_printk("%d selected for execution, but it is"
-				     " going to proxy for %d\n", next->pid,
-				     tp->pid);
-			printk("%d selected for execution, but it is"
 				     " going to proxy for %d\n", next->pid,
 				     tp->pid);
 			next = tp;

@@ -1141,6 +1141,7 @@ enum perf_event_task_context {
 	perf_nr_task_contexts,
 };
 
+extern inline struct task_struct* get_proxying(struct task_struct* task);
 extern void set_proxy_execution(struct task_struct *task,
 				struct task_struct *proxy);
 extern void clear_proxy_execution(struct task_struct *task,

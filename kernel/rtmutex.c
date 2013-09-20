@@ -531,10 +531,6 @@ static int task_blocks_on_rt_mutex(struct rt_mutex *lock,
 
 	trace_printk("task %d blocks on mutex (held by %d)\n", task->pid,
 	       owner->pid);
-	printk("task %d blocks on mutex (held by %d)\n", task->pid,
-	       owner->pid);
-	printk("task %d state: state %d, on_rq %d, on_cpu %d\n", task->pid,
-	       task->state, task->on_rq, task->on_cpu);
 
 	/* 
 	 * MBWI: task is added to owner's proxies list.
