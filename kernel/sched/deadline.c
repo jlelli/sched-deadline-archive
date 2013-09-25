@@ -17,6 +17,84 @@
 #include "sched.h"
 
 #include <linux/slab.h>
+#include <linux/kthread.h>
+#include <linux/sched.h>
+#include <linux/time.h>
+#include <linux/smpboot.h>
+
+typedef struct {
+	int cpu;
+
+	/* for which thread this stub is busy executing for */
+	struct task_struct *spin_on;
+	
+	/*
+	 * workqueue is an rbtree, ordered by deadline, of active
+	 * servers that may need to busy execute on this CPU
+	 */
+	struct rb_root rb_root;
+	struct rb_node *rb_leftmost;
+} pe_data_t;
+
+/*
+ * There is one kthread per CPU responsible for busy execution of
+ * active servers that are proxying a task currently running on
+ * another CPU. Each kthread has data associated.
+ */
+DEFINE_PER_CPU(struct task_struct*, pe_stub_kthread_task);
+DEFINE_PER_CPU(pe_data_t, pe_stub_kthread_data);
+
+static int pe_stub_kthread_should_run(unsigned int cpu)
+{
+	return !RB_EMPTY_ROOT(&__get_cpu_var(pe_stub_kthread_data).rb_root);
+}
+
+static void pe_stub_kthread(unsigned int cpu)
+{
+	pe_data_t *data = &__get_cpu_var(pe_stub_kthread_data);
+
+	pr_info("pe_stub/%u runs\n", data->cpu);
+}
+
+static void pe_stub_kthread_setup(unsigned int cpu)
+{
+	int retval = 0;
+	struct sched_param2 dl_params;
+	struct task_struct *pe_stub = per_cpu(pe_stub_kthread_task, cpu);
+
+	memset(&dl_params, 0, sizeof(dl_params));
+        dl_params.sched_priority = 0;
+        dl_params.sched_runtime = 10000000U;
+        dl_params.sched_deadline = 300000000U;
+        dl_params.sched_period = dl_params.sched_deadline;
+
+        retval = sched_setscheduler2_nocheck(pe_stub, SCHED_DEADLINE, &dl_params);
+	BUG_ON(retval);
+}
+
+static struct smp_hotplug_thread pe_stub_cpu_thread_spec = {
+        .store                  = &pe_stub_kthread_task,
+        .thread_should_run      = pe_stub_kthread_should_run,
+        .thread_fn              = pe_stub_kthread,
+        .thread_comm            = "pe_stub/%u",
+        .setup                  = pe_stub_kthread_setup,
+};
+
+static int __init pe_stubs_spawn_kthreads(void)
+{
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		per_cpu(pe_stub_kthread_data, cpu).cpu = cpu;
+		per_cpu(pe_stub_kthread_data, cpu).spin_on = NULL;
+		per_cpu(pe_stub_kthread_data, cpu).rb_root = RB_ROOT;
+	}
+
+	BUG_ON(smpboot_register_percpu_thread(&pe_stub_cpu_thread_spec));
+
+	return 0;
+}
+early_initcall(pe_stubs_spawn_kthreads);
 
 struct dl_bandwidth def_dl_bandwidth;
 
@@ -488,7 +566,6 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 						     struct sched_dl_entity,
 						     dl_timer);
 	struct task_struct *p = dl_task_of(dl_se);
-	struct task_struct *proxy = get_proxied_task(p);
 	struct rq *rq = task_rq(p);
 	raw_spin_lock(&rq->lock);
 

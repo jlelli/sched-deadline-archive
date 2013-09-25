@@ -3924,6 +3924,25 @@ int sched_setscheduler_nocheck(struct task_struct *p, int policy,
 	return __sched_setscheduler(p, policy, &param2, false);
 }
 
+/**
+ * sched_setscheduler2_nocheck - change the scheduling policy and/or DEADLINE parameters
+ *				 of a thread from kernelspace.
+ * @p: the task in question.
+ * @policy: new policy.
+ * @param2: structure containing the new DEADLINE parameters.
+ *
+ * Just like sched_setscheduler2, only don't bother checking if the
+ * current context has permission.  For example, this is needed for
+ * pe_stub kthreads: we create temporary high priority kernel threads,
+ * that are pinned on CPUs (scheduling domains configuration doesn't
+ * matter).
+ */
+int sched_setscheduler2_nocheck(struct task_struct *p, int policy,
+				const struct sched_param2 *param2)
+{
+	return __sched_setscheduler(p, policy, param2, false);
+}
+
 static int
 do_sched_setscheduler(pid_t pid, int policy, struct sched_param __user *param)
 {
