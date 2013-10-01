@@ -439,6 +439,27 @@ struct rt_rq {
 #endif
 };
 
+typedef struct pe_data {
+	int cpu;
+
+	/* for which thread this stub is busy executing for */
+	struct task_struct *spin_on;
+	
+	/*
+	 * workqueue is an rbtree, ordered by deadline, of active
+	 * servers that may need to busy execute on this CPU
+	 */
+	struct rb_root rb_root;
+	struct rb_node *rb_leftmost;
+} pe_data_t;
+
+struct task_struct* pe_stub_get(unsigned int cpu);
+pe_data_t* pe_stub_data_get(unsigned int cpu);
+void wakeup_pe_stub_kthread(void);
+int task_is_pe_stub(struct task_struct *tsk);
+int task_is_proxying_stub(struct task_struct *tsk);
+void pe_stub_stop(struct task_struct *tsk);
+
 /* Deadline class' related fields in a runqueue */
 struct dl_rq {
 	/* runqueue is an rbtree, ordered by deadline */

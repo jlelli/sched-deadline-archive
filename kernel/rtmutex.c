@@ -529,8 +529,10 @@ static int task_blocks_on_rt_mutex(struct rt_mutex *lock,
 	if (!owner)
 		return 0;
 
-	trace_printk("task %d blocks on mutex (held by %d)\n", task->pid,
+	trace_printk("%d L(m) (-> %d)\n", task->pid,
 	       owner->pid);
+	//pr_info("[task_blocks_on_rt_mutex] %d L(m) (-> %d [CPU %d])\n",
+	//	task->pid, owner->pid, task_cpu(owner));
 
 	/* 
 	 * MBWI: task is added to owner's proxies list.
@@ -603,8 +605,10 @@ static void wakeup_next_waiter(struct rt_mutex *lock)
 	 * after wake up (it was top_waiter); in case it is throttled, it will
 	 * execute using some other proxy's server.
 	 */
-	trace_printk("task %d is going to take mutex (previously held by %d)\n",
+	trace_printk("%d A(m) (%d)\n",
 	       waiter->task->pid, current->pid);
+	//pr_info("[wakeup_next_waiter] %d A(m) (%d)\n",
+	//     waiter->task->pid, current->pid);
 	clear_proxy_execution(current, waiter->task);
 	raw_spin_unlock_irqrestore(&current->pi_lock, flags);
 
@@ -752,6 +756,9 @@ rt_mutex_slowlock(struct rt_mutex *lock, int state,
 	struct rt_mutex_waiter waiter;
 	int ret = 0;
 
+	//pr_info("[rt_mutex_slowlock] %d L(m) (CPU %u)\n", current->pid,
+	//	smp_processor_id());
+
 	debug_rt_mutex_init_waiter(&waiter);
 	RB_CLEAR_NODE(&waiter.pi_tree_entry);
 	RB_CLEAR_NODE(&waiter.tree_entry);
@@ -844,6 +851,8 @@ rt_mutex_slowunlock(struct rt_mutex *lock)
 	}
 
 	trace_printk("task %d releases mutex\n", current->pid);
+	//pr_info("[rt_mutex_slowunlock] %d (CPU %u) U(m)\n", current->pid,
+	//	task_cpu(current));
 	wakeup_next_waiter(lock);
 
 	raw_spin_unlock(&lock->wait_lock);
@@ -916,6 +925,8 @@ void __sched rt_mutex_lock(struct rt_mutex *lock)
 {
 	might_sleep();
 
+	//pr_info("[rt_mutex_lock] %d L(m) (CPU %u)\n", current->pid,
+	//	smp_processor_id());
 	rt_mutex_fastlock(lock, TASK_UNINTERRUPTIBLE, 0, rt_mutex_slowlock);
 }
 EXPORT_SYMBOL_GPL(rt_mutex_lock);
@@ -936,6 +947,8 @@ int __sched rt_mutex_lock_interruptible(struct rt_mutex *lock,
 {
 	might_sleep();
 
+	//pr_info("[rt_mutex_lock_interruptible] %d L(m) (CPU %u)\n", current->pid,
+	//	smp_processor_id());
 	return rt_mutex_fastlock(lock, TASK_INTERRUPTIBLE,
 				 detect_deadlock, rt_mutex_slowlock);
 }
@@ -987,6 +1000,8 @@ EXPORT_SYMBOL_GPL(rt_mutex_trylock);
  */
 void __sched rt_mutex_unlock(struct rt_mutex *lock)
 {
+	//pr_info("[rt_mutex_unlock] %d U(m) (CPU %u)\n", current->pid,
+	//	smp_processor_id());
 	rt_mutex_fastunlock(lock, rt_mutex_slowunlock);
 }
 EXPORT_SYMBOL_GPL(rt_mutex_unlock);

@@ -1122,6 +1122,13 @@ struct sched_dl_entity {
 	int dl_throttled, dl_new, dl_boosted;
 
 	/*
+	 * With M-BWI tasks can execute outside their original server, and
+	 * can thus require a migration (whereas the original server remains
+	 * still). @cpu it's a cache for task's original server cpu.
+	 */
+	unsigned int cpu;
+
+	/*
 	 * Bandwidth enforcement timer. Each -deadline task has its
 	 * own bandwidth to be enforced, thus we need one timer per task.
 	 */
@@ -1249,11 +1256,14 @@ struct task_struct {
 	/* Proxy Execution
 	 * @proxying_for: when this task is scheduled it actually puts on the CPU
 	 *                the pointed task
+	 * @__proxying_for: cache for the task this task is proxying for, used for
+	 *		    pe_stub busy execution
 	 * @proxied_by: this task is currently proxied by the pointed task
 	 * @proxies: this task can have more than one possible proxies, pick one
 	 *           from this list when deciding which one is the current
 	 */
 	struct task_struct *proxying_for;
+	struct task_struct *__proxying_for;
 	struct task_struct *proxied_by;
 
 	struct list_head proxies;

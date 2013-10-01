@@ -21,4 +21,9 @@ static inline int dl_task(struct task_struct *p)
 	return dl_prio(p->prio);
 }
 
+static inline unsigned int task_dl_cpu(struct task_struct *p)
+{
+	return p->dl.cpu; 
+}
+
 #endif /* _SCHED_DEADLINE_H */

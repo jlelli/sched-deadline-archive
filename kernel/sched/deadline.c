@@ -22,20 +22,6 @@
 #include <linux/time.h>
 #include <linux/smpboot.h>
 
-typedef struct {
-	int cpu;
-
-	/* for which thread this stub is busy executing for */
-	struct task_struct *spin_on;
-	
-	/*
-	 * workqueue is an rbtree, ordered by deadline, of active
-	 * servers that may need to busy execute on this CPU
-	 */
-	struct rb_root rb_root;
-	struct rb_node *rb_leftmost;
-} pe_data_t;
-
 /*
  * There is one kthread per CPU responsible for busy execution of
  * active servers that are proxying a task currently running on
@@ -44,16 +30,86 @@ typedef struct {
 DEFINE_PER_CPU(struct task_struct*, pe_stub_kthread_task);
 DEFINE_PER_CPU(pe_data_t, pe_stub_kthread_data);
 
+struct task_struct* pe_stub_get(unsigned int cpu)
+{
+	return per_cpu(pe_stub_kthread_task, cpu);
+}
+
+pe_data_t* pe_stub_data_get(unsigned int cpu)
+{
+	return &per_cpu(pe_stub_kthread_data, cpu);
+}
+
+int task_is_pe_stub(struct task_struct *p)
+{
+	return p == pe_stub_get(task_cpu(p));
+}
+
+int task_is_proxying_stub(struct task_struct *tsk)
+{
+	//if (pe_stub_get(task_cpu(tsk))->proxied_by == tsk)
+		//pr_info("[task_is_proxying_stub] %d <- %d\n", tsk->pid,
+		//	pe_stub_get(task_cpu(tsk))->pid);
+	return pe_stub_get(task_cpu(tsk))->proxied_by == tsk;
+}
+
+int pe_stub_running(unsigned int cpu)
+{
+	struct task_struct *pe_stub = pe_stub_get(cpu);
+
+	return task_running(task_rq(pe_stub), pe_stub);
+}
+
+void pe_stub_stop(struct task_struct *tsk)
+{
+	struct task_struct *proxy = get_proxied_task(tsk);
+	pe_data_t *data = pe_stub_data_get(task_cpu(tsk));
+	
+	if (proxy->proxying_for != NULL) {
+		//pr_info("[pe_stub_stop] %d is proxying %d (%d)\n", proxy->pid,
+		//	proxy->proxying_for->pid, proxy->__proxying_for->pid);
+		trace_printk("[pe_stub_stop] %d is proxying %d (%d)\n",
+			     proxy->pid, proxy->proxying_for->pid,
+			     proxy->__proxying_for->pid);
+	}
+	proxy->proxying_for = proxy->__proxying_for;	
+	if (proxy->proxying_for != NULL) {
+		//pr_info("[pe_stub_stop] %d is proxying %d\n", proxy->pid,
+		//	proxy->proxying_for->pid);
+		trace_printk("[pe_stub_stop] %d is proxying %d (%d)\n",
+			     proxy->pid, proxy->proxying_for->pid,
+			     proxy->__proxying_for->pid);
+	}
+	tsk->on_rq = 0;
+	tsk->proxied_by = NULL;
+	data->spin_on = NULL;
+}
+
 static int pe_stub_kthread_should_run(unsigned int cpu)
 {
-	return !RB_EMPTY_ROOT(&__get_cpu_var(pe_stub_kthread_data).rb_root);
+	return pe_stub_data_get(cpu)->spin_on != NULL;
 }
 
 static void pe_stub_kthread(unsigned int cpu)
 {
-	pe_data_t *data = &__get_cpu_var(pe_stub_kthread_data);
+	pe_data_t *data = pe_stub_data_get(cpu);
 
-	pr_info("pe_stub/%u runs\n", data->cpu);
+	trace_printk("pe_stub/%u -> %d\n", data->cpu, data->spin_on->pid);
+	//pr_info("pe_stub/%u -> %d\n", data->cpu, data->spin_on->pid);
+
+	while (data->spin_on != NULL && data->spin_on == current->proxied_by
+	       && data->spin_on->__proxying_for != NULL &&
+	       task_running(task_rq(data->spin_on->__proxying_for),
+	       data->spin_on->__proxying_for))
+		cpu_relax();
+
+	//trace_printk("pe_stub/%u [spin_on: %d, proxied_by %d, __proxying_for %d (S%d)]\n",
+	//	     data->cpu, data->spin_on->pid, current->proxied_by->pid,
+	//	     data->spin_on->__proxying_for->pid,
+	//	     task_running(task_rq(data->spin_on->__proxying_for),
+	//	     data->spin_on->__proxying_for));
+	trace_printk("pe_stub/%u exits\n", data->cpu);
+	//pr_info("pe_stub/%u exits\n", data->cpu);
 }
 
 static void pe_stub_kthread_setup(unsigned int cpu)
@@ -96,6 +152,21 @@ static int __init pe_stubs_spawn_kthreads(void)
 }
 early_initcall(pe_stubs_spawn_kthreads);
 
+void wakeup_pe_stub_kthread(void)
+{
+	struct task_struct *tsk = __get_cpu_var(pe_stub_kthread_task);
+	
+	if (tsk && tsk->state != TASK_RUNNING) {
+		//wake_up_process(tsk);
+		set_task_state(tsk, TASK_RUNNING);
+		tsk->on_rq = 1;
+	}
+
+	trace_printk("pe_stub %d on (CPU %u)\n", tsk->pid, smp_processor_id());
+	//pr_info("[wakeup_pe_stub_kthread] pe_stub %d act (CPU %u)\n",
+	//	tsk->pid, smp_processor_id());
+}
+
 struct dl_bandwidth def_dl_bandwidth;
 
 static inline struct task_struct *dl_task_of(struct sched_dl_entity *dl_se)
@@ -126,6 +197,12 @@ static inline int is_leftmost(struct task_struct *p, struct dl_rq *dl_rq)
 	struct sched_dl_entity *dl_se = &p->dl;
 
 	return dl_rq->rb_leftmost == &dl_se->rb_node;
+}
+
+static inline void set_dl_entity_cpu(struct sched_dl_entity *dl_se,
+				     unsigned int cpu)
+{
+	dl_se->cpu = cpu;
 }
 
 void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 runtime)
@@ -345,6 +422,7 @@ static inline void setup_new_dl_entity(struct sched_dl_entity *dl_se)
 	dl_se->deadline = rq->clock + dl_se->dl_deadline;
 	dl_se->runtime = dl_se->dl_runtime;
 	dl_se->dl_new = 0;
+	set_dl_entity_cpu(dl_se, cpu_of(rq));
 }
 
 /*
@@ -369,6 +447,8 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 {
 	struct dl_rq *dl_rq = dl_rq_of_se(dl_se);
 	struct rq *rq = rq_of_dl_rq(dl_rq);
+	struct task_struct *tsk = dl_task_of(dl_se);
+	struct task_struct *proxied;
 
 	/*
 	 * This could be the case for a !-dl task that is boosted.
@@ -411,9 +491,43 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 	}
 
 
-	trace_printk("task %d's server (proxying %d) replenished\n",
-		     dl_task_of(dl_se)->pid,
-		     get_proxying(dl_task_of(dl_se))->pid);
+	trace_printk("%d's se (%d) Rep\n",
+		     tsk->pid, get_proxying(tsk)->pid);
+	//pr_info("[replenish_dl_entity] %d's se (%d) Rep\n", tsk->pid,
+	//	get_proxying(tsk)->pid);
+
+	/*
+	 * tsk is proxying someone. If proxied is already running on some other
+	 * processor, we need to busy wait.
+	 */
+	if (task_is_proxying(tsk))
+		proxied = get_proxying(tsk);
+	else
+		return;
+	
+	//pr_info("TCPU %u PCPU %d Pstate %d Sstate %d\n", task_cpu(tsk),
+	//	task_cpu(proxied), task_running(task_rq(proxied), proxied),
+	//	pe_stub_running(task_cpu(tsk)));
+	if (task_cpu(proxied) != task_cpu(tsk) &&
+	    task_running(task_rq(proxied), proxied) &&
+	    !pe_stub_running(task_cpu(tsk))) {
+		struct task_struct *pe_stub = pe_stub_get(task_cpu(tsk));
+		pe_data_t *data = pe_stub_data_get(task_cpu(tsk));
+
+		/* let's cache who tsk is actually proxying for */
+		tsk->__proxying_for = tsk->proxying_for;
+		tsk->proxying_for = pe_stub;
+		pe_stub->proxied_by = tsk;
+		//pr_info("[replenish_dl_entity] tsk %d (%d) pe_stub %d <- %d\n",
+		//	tsk->__proxying_for->pid, tsk->proxying_for->pid,
+		//	pe_stub->pid, pe_stub->proxied_by->pid);
+		data->spin_on = tsk;
+		data->cpu = task_cpu(tsk);
+
+		//pr_info("[replenish_dl_entity] activating pe_stub on CPU %u\n",
+		//	task_cpu(tsk));
+		wakeup_pe_stub_kthread();
+	}
 }
 
 /*
@@ -592,8 +706,8 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 		 * Queueing this task back might have overloaded rq,
 		 * check if we need to kick someone away.
 		 */
-		if (has_pushable_dl_tasks(rq))
-			push_dl_task(rq);
+		//if (has_pushable_dl_tasks(rq))
+		//	push_dl_task(rq);
 #endif
 	}
 unlock:
@@ -699,24 +813,30 @@ static void update_curr_dl(struct rq *rq)
 
 	dl_se->runtime -= delta_exec;
 	if (dl_runtime_exceeded(rq, dl_se)) {
-		trace_printk("task %d's se exceeded its runtime ", proxy->pid);
+		trace_printk("%d's se Run ex.\n", proxy->pid);
+		//pr_info("[update_curr_dl] %d's se Run ex.\n", proxy->pid);
 		if (task_is_proxied(curr)) {
-			trace_printk("while proxying %d\n", curr->pid);
-			trace_printk("deactivating %d's proxy %d (thottling)\n",
-			       curr->pid, proxy->pid);
-			proxy->on_rq = 0;
+			trace_printk(" -> %d\n", curr->pid);
+			//pr_info("[update_curr_dl] -> %d\n", curr->pid);
+			//proxy->on_rq = 0;
 		}
+		//if (task_is_proxying_stub(proxy)) {
+		//	pr_info("[update_curr_dl] stop pe_stub %d (CPU %u)\n",
+		//		proxy->proxying_for->pid, smp_processor_id());
+		//	pe_stub_stop(proxy->proxying_for);
+		//}
 		__dequeue_task_dl(rq, proxy, 0);
-		if (likely(start_dl_timer(dl_se))) {
-			trace_printk("replenishment timer started for task %d's"
-				     " server, proxying task %d\n", proxy->pid,
-				     curr->pid);
+		//if (likely(start_dl_timer(dl_se))) {
+		if (0) {
+			trace_printk("%d's se Th\n", proxy->pid);
+			//pr_info("[update_curr_dl] %d's se Th\n", proxy->pid);
 			dl_se->dl_throttled = 1;
 		}
 		else {
-			trace_printk("replenishment timer not started for task %d's"
-				     " server, proxying task %d\n", proxy->pid,
-				     curr->pid);
+			trace_printk("%d's se Rep. (<- %d)\n", 
+				     proxy->pid, curr->pid);
+			//pr_info("[update_curr_dl] %d's se Rep. (<- %d)\n", 
+			//	proxy->pid, curr->pid);
 			enqueue_task_dl(rq, proxy, ENQUEUE_REPLENISH);
 		}
 
@@ -914,8 +1034,11 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	 * its rq, the bandwidth timer callback (which clearly has not
 	 * run yet) will take care of this.
 	 */
-	if (task->dl.dl_throttled)
+	if (task->dl.dl_throttled) {
+		trace_printk("task %d is throttled.. we do nothing\n", p->pid);
+		//pr_info("task %d is throttled.. we do nothing\n", p->pid);
 		return;
+	}
 
 	enqueue_dl_entity(dl_se, flags);
 
@@ -1044,6 +1167,8 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 static void check_preempt_curr_dl(struct rq *rq, struct task_struct *p,
 				  int flags)
 {
+	BUG_ON(!dl_task(rq->curr));
+
 	if (dl_entity_preempt(&p->dl, &rq->curr->dl)) {
 		resched_task(rq->curr);
 		return;
@@ -1113,8 +1238,6 @@ struct task_struct *pick_next_task_dl(struct rq *rq)
 
 	p = dl_task_of(dl_se);
 	p->se.exec_start = rq->clock_task;
-	trace_printk("task %d (proxying %d) runs (dl %llu)\n", p->pid,
-		     get_proxied_task(p)->pid, dl_se->deadline);
 
 	/* Running task will never be pushed. */
 	if (p)
@@ -1137,20 +1260,29 @@ static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
 	update_curr_dl(rq);
 
 	/*
+	 * If pe_stub_kthread got preempted, reset it, so it can go
+	 * to sleep. proxy's cache is also reset.
+	 */
+	//if (task_is_pe_stub(p))
+	//	pe_stub_stop(p);
+
+	/*
 	 * If p was executing in some of its proxies, that proxy must
 	 * first be deactivated, since has been preempted. Later on
 	 * p could execute in some other server, or wait in the ready
-	 * queue with the same one.
+	 * queue with the same one. TODO not anymore?
 	 */
-	if (task_is_proxied(p)) {
-		struct task_struct *proxy = get_proxied_task(p);
+	//if (task_is_proxied(p)) {
+	//	struct task_struct *proxy = get_proxied_task(p);
 
-		trace_printk("deactivating %d's proxy %d (preempt)\n", p->pid,
-			proxy->pid);
-		deactivate_task(task_rq(proxy), proxy, 0);
-		proxy->on_rq = 0;
-		p->proxied_by = NULL;
-	}
+	//	trace_printk("deactivating %d's proxy %d (preempt)\n", p->pid,
+	//		proxy->pid);
+	//	pr_info("deactivating %d's proxy %d (preempt)\n", p->pid,
+	//		proxy->pid);
+	//	deactivate_task(task_rq(proxy), proxy, 0);
+	//	proxy->on_rq = 0;
+	//	p->proxied_by = NULL;
+	//}
 
 	/*
 	 * If p, that is gonna be preempted, has some proxy spinning, pick
@@ -1567,13 +1699,13 @@ skip:
 static void pre_schedule_dl(struct rq *rq, struct task_struct *prev)
 {
 	/* Try to pull other tasks here */
-	if (dl_task(prev))
-		pull_dl_task(rq);
+	//if (dl_task(prev))
+	//	pull_dl_task(rq);
 }
 
 static void post_schedule_dl(struct rq *rq)
 {
-	push_dl_tasks(rq);
+	//push_dl_tasks(rq);
 }
 
 /*
@@ -1589,7 +1721,7 @@ static void task_woken_dl(struct rq *rq, struct task_struct *p)
 	    dl_task(rq->curr) &&
 	    (rq->curr->nr_cpus_allowed < 2 ||
 	     dl_entity_preempt(&rq->curr->dl, &p->dl))) {
-		push_dl_tasks(rq);
+		//push_dl_tasks(rq);
 	}
 }
 
@@ -1677,8 +1809,8 @@ static void switched_from_dl(struct rq *rq, struct task_struct *p)
 	 * this is the right place to try to pull some other one
 	 * from an overloaded cpu, if any.
 	 */
-	if (!rq->dl.dl_nr_running)
-		pull_dl_task(rq);
+	//if (!rq->dl.dl_nr_running)
+	//	pull_dl_task(rq);
 #endif
 }
 
@@ -1700,7 +1832,8 @@ static void switched_to_dl(struct rq *rq, struct task_struct *p)
 
 	if (!p->on_rq || rq->curr != p) {
 #ifdef CONFIG_SMP
-		if (rq->dl.overloaded && push_dl_task(rq) && rq != task_rq(p))
+		//if (rq->dl.overloaded && push_dl_task(rq) && rq != task_rq(p))
+		if (rq->dl.overloaded && rq != task_rq(p))
 			/* Only reschedule if pushing failed */
 			check_resched = 0;
 #endif /* CONFIG_SMP */
@@ -1724,8 +1857,8 @@ static void prio_changed_dl(struct rq *rq, struct task_struct *p,
 		 * we can't argue if the task is increasing
 		 * or lowering its prio, so...
 		 */
-		if (!rq->dl.overloaded)
-			pull_dl_task(rq);
+		//if (!rq->dl.overloaded)
+		//	pull_dl_task(rq);
 
 		/*
 		 * If we now have a earlier deadline task than p,
