@@ -72,7 +72,7 @@ void pe_stub_stop(struct task_struct *tsk)
 			     proxy->pid, proxy->proxying_for->pid,
 			     proxy->__proxying_for->pid);
 	}
-	proxy->proxying_for = proxy->__proxying_for;	
+	proxy->proxying_for = proxy->__proxying_for;
 	if (proxy->proxying_for != NULL) {
 		//pr_info("[pe_stub_stop] %d is proxying %d\n", proxy->pid,
 		//	proxy->proxying_for->pid);
@@ -82,6 +82,14 @@ void pe_stub_stop(struct task_struct *tsk)
 	}
 	tsk->on_rq = 0;
 	tsk->proxied_by = NULL;
+	data->spin_on = NULL;
+}
+
+void pe_stub_pause(struct task_struct *tsk)
+{
+	pe_data_t *data = pe_stub_data_get(task_cpu(tsk));
+
+	tsk->on_rq = 0;
 	data->spin_on = NULL;
 }
 
@@ -159,6 +167,8 @@ void wakeup_pe_stub_kthread(void)
 	if (tsk && tsk->state != TASK_RUNNING) {
 		//wake_up_process(tsk);
 		set_task_state(tsk, TASK_RUNNING);
+		tsk->se.exec_start = task_rq(tsk)->clock_task;
+		trace_printk("%d exec_start %llu\n", tsk->pid, tsk->se.exec_start);
 		tsk->on_rq = 1;
 	}
 
@@ -500,34 +510,34 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 	 * tsk is proxying someone. If proxied is already running on some other
 	 * processor, we need to busy wait.
 	 */
-	if (task_is_proxying(tsk))
-		proxied = get_proxying(tsk);
-	else
-		return;
-	
-	//pr_info("TCPU %u PCPU %d Pstate %d Sstate %d\n", task_cpu(tsk),
-	//	task_cpu(proxied), task_running(task_rq(proxied), proxied),
-	//	pe_stub_running(task_cpu(tsk)));
-	if (task_cpu(proxied) != task_cpu(tsk) &&
-	    task_running(task_rq(proxied), proxied) &&
-	    !pe_stub_running(task_cpu(tsk))) {
-		struct task_struct *pe_stub = pe_stub_get(task_cpu(tsk));
-		pe_data_t *data = pe_stub_data_get(task_cpu(tsk));
+	//if (task_is_proxying(tsk))
+	//	proxied = get_proxying(tsk);
+	//else
+	//	return;
+	//
+	////pr_info("TCPU %u PCPU %d Pstate %d Sstate %d\n", task_cpu(tsk),
+	////	task_cpu(proxied), task_running(task_rq(proxied), proxied),
+	////	pe_stub_running(task_cpu(tsk)));
+	//if (task_cpu(proxied) != task_cpu(tsk) &&
+	//    task_running(task_rq(proxied), proxied) &&
+	//    !pe_stub_running(task_cpu(tsk))) {
+	//	struct task_struct *pe_stub = pe_stub_get(task_cpu(tsk));
+	//	pe_data_t *data = pe_stub_data_get(task_cpu(tsk));
 
-		/* let's cache who tsk is actually proxying for */
-		tsk->__proxying_for = tsk->proxying_for;
-		tsk->proxying_for = pe_stub;
-		pe_stub->proxied_by = tsk;
-		//pr_info("[replenish_dl_entity] tsk %d (%d) pe_stub %d <- %d\n",
-		//	tsk->__proxying_for->pid, tsk->proxying_for->pid,
-		//	pe_stub->pid, pe_stub->proxied_by->pid);
-		data->spin_on = tsk;
-		data->cpu = task_cpu(tsk);
+	//	/* let's cache who tsk is actually proxying for */
+	//	tsk->__proxying_for = tsk->proxying_for;
+	//	tsk->proxying_for = pe_stub;
+	//	pe_stub->proxied_by = tsk;
+	//	//pr_info("[replenish_dl_entity] tsk %d (%d) pe_stub %d <- %d\n",
+	//	//	tsk->__proxying_for->pid, tsk->proxying_for->pid,
+	//	//	pe_stub->pid, pe_stub->proxied_by->pid);
+	//	data->spin_on = tsk;
+	//	data->cpu = task_cpu(tsk);
 
-		//pr_info("[replenish_dl_entity] activating pe_stub on CPU %u\n",
-		//	task_cpu(tsk));
-		wakeup_pe_stub_kthread();
-	}
+	//	//pr_info("[replenish_dl_entity] activating pe_stub on CPU %u\n",
+	//	//	task_cpu(tsk));
+	//	wakeup_pe_stub_kthread();
+	//}
 }
 
 /*
@@ -683,7 +693,7 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	struct rq *rq = task_rq(p);
 	raw_spin_lock(&rq->lock);
 
-	trace_printk("task %d's se dl_task_timer fired\n", p->pid);
+	trace_printk("%d's se rep. timer\n", p->pid);
 
 	/*
 	 * We need to take care of a possible races here. In fact, the
@@ -696,6 +706,10 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 
 	dl_se->dl_throttled = 0;
 	if (p->on_rq) {
+		//if (task_is_proxying_stub(p)) {
+		//	p->proxying_for->on_rq = 1;
+		//	wakeup_pe_stub_kthread();
+		//}
 		enqueue_task_dl(rq, p, ENQUEUE_REPLENISH);
 		if (task_has_dl_policy(rq->curr))
 			check_preempt_curr_dl(rq, p, 0);
@@ -796,6 +810,7 @@ static void update_curr_dl(struct rq *rq)
 	 * in hardirq context, etc.)
 	 */
 	delta_exec = rq->clock_task - curr->se.exec_start;
+	trace_printk("%d delta_exec %llu\n", curr->pid, delta_exec);
 	if (unlikely((s64)delta_exec < 0))
 		delta_exec = 0;
 
@@ -807,6 +822,7 @@ static void update_curr_dl(struct rq *rq)
 	account_group_exec_runtime(curr, delta_exec);
 
 	curr->se.exec_start = rq->clock_task;
+	trace_printk("%d exec_start %llu\n", curr->pid, curr->se.exec_start);
 	cpuacct_charge(curr, delta_exec);
 
 	sched_rt_avg_update(rq, delta_exec);
@@ -815,22 +831,20 @@ static void update_curr_dl(struct rq *rq)
 	if (dl_runtime_exceeded(rq, dl_se)) {
 		trace_printk("%d's se Run ex.\n", proxy->pid);
 		//pr_info("[update_curr_dl] %d's se Run ex.\n", proxy->pid);
-		if (task_is_proxied(curr)) {
+		if (task_is_proxied(curr))
 			trace_printk(" -> %d\n", curr->pid);
-			//pr_info("[update_curr_dl] -> %d\n", curr->pid);
-			//proxy->on_rq = 0;
-		}
-		//if (task_is_proxying_stub(proxy)) {
-		//	pr_info("[update_curr_dl] stop pe_stub %d (CPU %u)\n",
-		//		proxy->proxying_for->pid, smp_processor_id());
-		//	pe_stub_stop(proxy->proxying_for);
-		//}
 		__dequeue_task_dl(rq, proxy, 0);
-		//if (likely(start_dl_timer(dl_se))) {
-		if (0) {
+		if (likely(start_dl_timer(dl_se))) {
+		//if (0) {
 			trace_printk("%d's se Th\n", proxy->pid);
 			//pr_info("[update_curr_dl] %d's se Th\n", proxy->pid);
 			dl_se->dl_throttled = 1;
+			if (task_is_proxying_stub(proxy)) {
+				trace_printk("pe_stub/%u-%d pause\n",
+					     smp_processor_id(),
+					     proxy->proxying_for->pid);
+				pe_stub_pause(proxy->proxying_for);
+			}
 		}
 		else {
 			trace_printk("%d's se Rep. (<- %d)\n", 
@@ -844,7 +858,7 @@ static void update_curr_dl(struct rq *rq)
 			resched_task(proxy);
 	}
 
-	trace_printk("sched entity of task %d (rt %llu, dl %llu)\n",
+	trace_printk("sched entity of task %d (rt %lld, dl %llu)\n",
 		     proxy->pid, dl_se->runtime, dl_se->deadline);
 }
 
@@ -1238,6 +1252,7 @@ struct task_struct *pick_next_task_dl(struct rq *rq)
 
 	p = dl_task_of(dl_se);
 	p->se.exec_start = rq->clock_task;
+	trace_printk("%d exec_start %llu\n", p->pid, p->se.exec_start);
 
 	/* Running task will never be pushed. */
 	if (p)
