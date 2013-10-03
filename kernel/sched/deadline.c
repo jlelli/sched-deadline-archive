@@ -694,7 +694,7 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	raw_spin_lock(&rq->lock);
 
 	trace_printk("%d's se rep. timer\n", p->pid);
-	pr_info("%d's se rep. timer\n", p->pid);
+	//pr_info("%d's se rep. timer\n", p->pid);
 
 	/*
 	 * We need to take care of a possible races here. In fact, the
@@ -857,8 +857,8 @@ static void update_curr_dl(struct rq *rq)
 
 		if (!is_leftmost(proxy, &rq->dl)) {
 			trace_printk("%d's se not leftmost anymore\n", proxy->pid);
-			pr_info("%d's se, resched on CPU %u (curr is %d [CPU %u])\n",
-				proxy->pid, smp_processor_id(), curr->pid, task_cpu(curr));
+			//pr_info("%d's se, resched on CPU %u (curr is %d [CPU %u])\n",
+			//	proxy->pid, smp_processor_id(), curr->pid, task_cpu(curr));
 			resched_task(curr);
 		}
 	}
@@ -1186,12 +1186,26 @@ static void check_preempt_equal_dl(struct rq *rq, struct task_struct *p)
 static void check_preempt_curr_dl(struct rq *rq, struct task_struct *p,
 				  int flags)
 {
-	BUG_ON(!dl_task(rq->curr));
+	struct task_struct *p_proxy, *curr_proxy;
 
-	if (dl_entity_preempt(&p->dl, &rq->curr->dl)) {
+	BUG_ON(!(dl_task(rq->curr) && dl_task(p)));
+
+	p_proxy = get_proxied_task(p);
+	curr_proxy = get_proxied_task(rq->curr);
+
+	/*
+	 * First condition (OR leftside) is the plain one: two entities running
+	 * on the same CPU. Second one (OR rightside) happens when a lock owner
+	 * releases the lock, but it is still running on an inherited CPU. It
+	 * will be sent back on the next call to __schedule().
+	 */
+	if ((task_cpu(p) == task_cpu(rq->curr) &&
+	     dl_entity_preempt(&p_proxy->dl, &curr_proxy->dl)) ||
+	    (!task_has_proxies(rq->curr) &&
+	     task_cpu(p) != task_dl_cpu(rq->curr))) {
 		resched_task(rq->curr);
 		return;
-	}
+	} 
 
 #ifdef CONFIG_SMP
 	/*
@@ -1285,6 +1299,15 @@ static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
 	 */
 	if (task_has_proxies(p))
 		pick_task_proxy(p);
+
+	/*
+	 * p is a new proxy for someone (and it's going to be descheduled).
+	 * If the task p is proxying for is not running, start executing that
+	 * task in p's server.
+	 */
+	if (task_is_proxying(p) && !task_running(task_rq(get_proxying(p)),
+				                 get_proxying(p)))
+		pick_task_proxy(get_proxying(p));
 
 	/*
 	 * TODO

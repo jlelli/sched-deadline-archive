@@ -1001,7 +1001,7 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 	 * We should never call set_task_cpu() on a blocked task,
 	 * ttwu() will sort out the placement.
 	 */
-	WARN_ON_ONCE(!dl_task(p) && p->state != TASK_RUNNING &&
+	WARN_ON_ONCE(p->state != TASK_RUNNING &&
 		     p->state != TASK_WAKING &&
 		     !(task_thread_info(p)->preempt_count &
 		       PREEMPT_ACTIVE));
@@ -1391,6 +1391,8 @@ static int ttwu_remote(struct task_struct *p, int wake_flags)
 
 	rq = __task_rq_lock(p);
 	if (p->on_rq) {
+		if (dl_task(p))
+			trace_printk("%d light wakeup\n", p->pid);
 		/* check_preempt_curr() may use rq clock */
 		update_rq_clock(rq);
 		ttwu_do_wakeup(rq, p, wake_flags);
@@ -2532,22 +2534,20 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 	 * task just got a new proxy. If task's current server is waiting for
 	 * replenishment, start executing task in new proxy's server.
 	 */
-	if (get_proxied_task(task)->dl.dl_throttled) {
-		trace_printk("task %d's current server is throttled!\n",
-			     task->pid);
-		//pr_info("task %d's current server is throttled!\n",
-		//	     task->pid);
-		raw_spin_lock(&task_rq(task)->lock);
-		if (task_is_proxied(task)) {
-			//struct task_struct *proxy = get_proxied_task(task);
+	//if (get_proxied_task(task)->dl.dl_throttled) {
+	//	trace_printk("task %d's current server is throttled!\n",
+	//		     task->pid);
+	//	pr_info("task %d's current server is throttled!\n",
+	//		     task->pid);
+	//	while (!raw_spin_trylock(&task_rq(task)->lock))
+	//		cpu_relax();
 
-			//deactivate_task(task_rq(proxy), proxy, 0);
-			//proxy->on_rq = 0;
-			task->proxied_by = NULL;
-		}
-		pick_task_proxy(task);
-		raw_spin_unlock(&task_rq(task)->lock);
-	}
+	//	if (task_is_proxied(task))
+	//		task->proxied_by = NULL;
+
+	//	pick_task_proxy(task);
+	//	raw_spin_unlock(&task_rq(task)->lock);
+	//}
 }
 
 /**
@@ -2568,24 +2568,11 @@ void clear_proxy_execution(struct task_struct *task,
 
 	BUG_ON(list_empty(&task->proxies));
 
-	/*
-	 * task ceases to be proxied. next_proxied ceases to be a proxy (of
-	 * task) and becomes the next task to be proxied (since it was the top_
-	 * waiter and it's gonna be the new lock holder). It inherits all the
-	 * proxies of task.
-	 */
+	//if (task_is_proxied(task))
+		//pr_info("[clear_proxy_exec] %d running on %u (orig %u)\n", task->pid,
+		//	task_cpu(task), task_dl_cpu(task));
+	//	set_task_cpu(task, task_dl_cpu(task));
 
-	if (task_is_proxied(task)) {
-		//dequeue_task(task_rq(task->proxied_by), task->proxied_by, 0);
-		//task->proxied_by->on_rq = 0;
-		set_task_cpu(task, task_dl_cpu(task));
-		//pr_info("deactivating %d as proxy for %d\n", next_proxied->pid, task->pid);
-	}
-
-	/*
-	 * Remove next_proxy's se from rq. It will be queued back at next_proxy
-	 * wake up time.
-	 */
 	if (task_is_proxying_stub(next_proxied)) {
 		//pr_info("[clear_proxy_exec] stopping pe_stub %d\n",
 		//	next_proxied->proxying_for->pid);
@@ -2613,6 +2600,12 @@ void clear_proxy_execution(struct task_struct *task,
 	}
 	list_del(&next_proxied->proxy_node);
 
+	/*
+	 * task ceases to be proxied. next_proxied ceases to be a proxy (of
+	 * task) and becomes the next task to be proxied (since it was the top_
+	 * waiter and it's gonna be the new lock holder). It inherits all the
+	 * proxies of task.
+	 */
 	trace_printk("moving %d's proxies list to %d\n", task->pid, 
 	       next_proxied->pid);
 	list_for_each_entry_safe(tpi, tpi_h, &task->proxies, proxy_node) {
@@ -2647,7 +2640,7 @@ void pick_task_proxy(struct task_struct *task)
 
 	if (!found) {
 		trace_printk("no proxy found for task %d\n", task->pid);
-		pr_info("no proxy found for task %d\n", task->pid);
+		//pr_info("no proxy found for task %d\n", task->pid);
 		return;
 	}
 
@@ -2666,8 +2659,8 @@ void pick_task_proxy(struct task_struct *task)
 		dst_cpu = task_cpu(proxy);
 		trace_printk("proxy %d picked for task %d\n", proxy->pid,
 			     task->pid);
-		pr_info("proxy %d picked for task %d\n", proxy->pid,
-			     task->pid);
+		//pr_info("proxy %d picked for task %d\n", proxy->pid,
+		//	     task->pid);
 
 		BUG_ON(!proxy->on_rq);
 		
@@ -2679,9 +2672,9 @@ void pick_task_proxy(struct task_struct *task)
 				trace_printk("pe_stub/%u-%d running\n",
 					     pe_stub->pid,
 					     dst_cpu);
-				pr_info("pe_stub/%u-%d running\n",
-					     pe_stub->pid,
-					     dst_cpu);
+				//pr_info("pe_stub/%u-%d running\n",
+				//	     pe_stub->pid,
+				//	     dst_cpu);
 				pe_stub_stop(pe_stub);
 			}
 		}
@@ -2770,16 +2763,25 @@ need_resched:
 		switch_count = &prev->nvcsw;
 	}
 
+	/*
+	 * This is the case when a mutex owner was executing in one of its
+	 * proxies on some other CPU, and releases the mutex.
+	 */
+	if (dl_task(prev) && !task_has_proxies(prev) &&
+	    task_cpu(prev) != task_dl_cpu(prev)) {
+		trace_printk("%d goes back to %u\n", prev->pid, task_dl_cpu(prev));
+		//pr_info("%d goes back to %u\n", prev->pid, task_dl_cpu(prev));
+		set_task_cpu(prev, task_dl_cpu(prev));
+	}
+
 	pre_schedule(rq, prev);
 
 	if (unlikely(!rq->nr_running))
 		idle_balance(cpu, rq);
 
 	put_prev_task(rq, prev);
-	trace_printk("prev %d\n", prev->pid);
 proxy_retry:
 	next = pick_next_task(rq);
-	trace_printk("next %d\n", next->pid);
 	if (task_is_proxying(next)) {
 		struct task_struct *tp;
 		unsigned int tp_cpu;
@@ -2854,6 +2856,7 @@ proxy_retry:
 			tp->se.exec_start = rq->clock;
 		}
 	}
+
 	clear_tsk_need_resched(prev);
 	rq->skip_clock_update = 0;
 
