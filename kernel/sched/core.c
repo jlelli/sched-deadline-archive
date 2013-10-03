@@ -1001,8 +1001,10 @@ void set_task_cpu(struct task_struct *p, unsigned int new_cpu)
 	 * We should never call set_task_cpu() on a blocked task,
 	 * ttwu() will sort out the placement.
 	 */
-	WARN_ON_ONCE(p->state != TASK_RUNNING && p->state != TASK_WAKING &&
-			!(task_thread_info(p)->preempt_count & PREEMPT_ACTIVE));
+	WARN_ON_ONCE(!dl_task(p) && p->state != TASK_RUNNING &&
+		     p->state != TASK_WAKING &&
+		     !(task_thread_info(p)->preempt_count &
+		       PREEMPT_ACTIVE));
 
 #ifdef CONFIG_LOCKDEP
 	/*
@@ -2636,8 +2638,7 @@ void pick_task_proxy(struct task_struct *task)
 	 * Search best server among task's proxies.
 	 */
 	list_for_each_entry(proxy, &task->proxies, proxy_node) {
-		if (!proxy->dl.dl_throttled &&
-		    task_cpu(task) == task_cpu(proxy)) {
+		if (!proxy->dl.dl_throttled) {
 			found = 1;
 			task->proxied_by = proxy;
 			break;
@@ -2646,7 +2647,7 @@ void pick_task_proxy(struct task_struct *task)
 
 	if (!found) {
 		trace_printk("no proxy found for task %d\n", task->pid);
-		//pr_info("no proxy found for task %d\n", task->pid);
+		pr_info("no proxy found for task %d\n", task->pid);
 		return;
 	}
 
@@ -2665,39 +2666,26 @@ void pick_task_proxy(struct task_struct *task)
 		dst_cpu = task_cpu(proxy);
 		trace_printk("proxy %d picked for task %d\n", proxy->pid,
 			     task->pid);
-		//pr_info("proxy %d picked for task %d\n", proxy->pid,
-		//	     task->pid);
+		pr_info("proxy %d picked for task %d\n", proxy->pid,
+			     task->pid);
 
 		BUG_ON(!proxy->on_rq);
 		
 		if (src_cpu != dst_cpu) {
-			trace_printk("proxy %d runs on CPU %u\n", proxy->pid,
-				     dst_cpu);
-			//pr_info("proxy %d runs on CPU %u\n", proxy->pid,
-			//	     dst_cpu);
-			double_lock_balance(cpu_rq(src_cpu), cpu_rq(dst_cpu));
+			set_task_cpu(task, dst_cpu);
+			if (pe_stub_running(dst_cpu)) {
+				struct task_struct *pe_stub =
+					pe_stub_get(dst_cpu);
+				trace_printk("pe_stub/%u-%d running\n",
+					     pe_stub->pid,
+					     dst_cpu);
+				pr_info("pe_stub/%u-%d running\n",
+					     pe_stub->pid,
+					     dst_cpu);
+				pe_stub_stop(pe_stub);
+			}
 		}
-
-		//if (!proxy->on_rq) {
-		//	//pr_info("activating proxy %d\n", proxy->pid);
-		//	enqueue_task(task_rq(proxy), proxy, 0);
-		//	proxy->on_rq = 1;
-		//	set_task_cpu(task, dst_cpu);
-		//}
-		if (src_cpu != dst_cpu)
-			double_unlock_balance(cpu_rq(src_cpu), cpu_rq(dst_cpu));
-	} else
-		return;
-
-	/*
-	 * We force a reschedule only if proxy is currently executing on its
-	 * CPU, otherwise we wait for the next scheduling event (since proxy
-	 * wouldn't be scheduled anyway).
-	 */
-	//if (task_running(task_rq(proxy), proxy)) {
-	//	trace_printk("proxy %d was executing: reschedule\n", proxy->pid);
-	//	resched_task(proxy);
-	//}
+	}
 }
 
 /*
@@ -2788,8 +2776,10 @@ need_resched:
 		idle_balance(cpu, rq);
 
 	put_prev_task(rq, prev);
+	trace_printk("prev %d\n", prev->pid);
 proxy_retry:
 	next = pick_next_task(rq);
+	trace_printk("next %d\n", next->pid);
 	if (task_is_proxying(next)) {
 		struct task_struct *tp;
 		unsigned int tp_cpu;
@@ -2861,6 +2851,7 @@ proxy_retry:
 			//	     " going to proxy for %d\n", next->pid,
 			//	     tp->pid);
 			next = tp;
+			tp->se.exec_start = rq->clock;
 		}
 	}
 	clear_tsk_need_resched(prev);

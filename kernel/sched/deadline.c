@@ -694,6 +694,7 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	raw_spin_lock(&rq->lock);
 
 	trace_printk("%d's se rep. timer\n", p->pid);
+	pr_info("%d's se rep. timer\n", p->pid);
 
 	/*
 	 * We need to take care of a possible races here. In fact, the
@@ -854,8 +855,12 @@ static void update_curr_dl(struct rq *rq)
 			enqueue_task_dl(rq, proxy, ENQUEUE_REPLENISH);
 		}
 
-		if (!is_leftmost(proxy, &rq->dl))
-			resched_task(proxy);
+		if (!is_leftmost(proxy, &rq->dl)) {
+			trace_printk("%d's se not leftmost anymore\n", proxy->pid);
+			pr_info("%d's se, resched on CPU %u (curr is %d [CPU %u])\n",
+				proxy->pid, smp_processor_id(), curr->pid, task_cpu(curr));
+			resched_task(curr);
+		}
 	}
 
 	trace_printk("sched entity of task %d (rt %lld, dl %llu)\n",
@@ -1273,31 +1278,6 @@ struct task_struct *pick_next_task_dl(struct rq *rq)
 static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
 {
 	update_curr_dl(rq);
-
-	/*
-	 * If pe_stub_kthread got preempted, reset it, so it can go
-	 * to sleep. proxy's cache is also reset.
-	 */
-	//if (task_is_pe_stub(p))
-	//	pe_stub_stop(p);
-
-	/*
-	 * If p was executing in some of its proxies, that proxy must
-	 * first be deactivated, since has been preempted. Later on
-	 * p could execute in some other server, or wait in the ready
-	 * queue with the same one. TODO not anymore?
-	 */
-	//if (task_is_proxied(p)) {
-	//	struct task_struct *proxy = get_proxied_task(p);
-
-	//	trace_printk("deactivating %d's proxy %d (preempt)\n", p->pid,
-	//		proxy->pid);
-	//	pr_info("deactivating %d's proxy %d (preempt)\n", p->pid,
-	//		proxy->pid);
-	//	deactivate_task(task_rq(proxy), proxy, 0);
-	//	proxy->on_rq = 0;
-	//	p->proxied_by = NULL;
-	//}
 
 	/*
 	 * If p, that is gonna be preempted, has some proxy spinning, pick

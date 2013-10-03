@@ -459,6 +459,7 @@ void wakeup_pe_stub_kthread(void);
 int task_is_pe_stub(struct task_struct *tsk);
 int task_is_proxying_stub(struct task_struct *tsk);
 void pe_stub_stop(struct task_struct *tsk);
+int pe_stub_running(unsigned int cpu);
 
 /* Deadline class' related fields in a runqueue */
 struct dl_rq {
