@@ -660,7 +660,7 @@ static void set_cpus_allowed_dl(struct task_struct *p,
 	BUG_ON(!dl_task(p));
 
 	cpumask_copy(&p->cpus_allowed, new_mask);
-	p->dl.nr_cpus_allowed = weight;
+	p->nr_cpus_allowed = weight;
 }
 #endif
 
