@@ -847,7 +847,11 @@ static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
  * Yield task semantic for -deadline tasks is:
  *
  *   get off from the CPU until our next instance, with
- *   a new runtime.
+ *   a new runtime. This is of little use now, since we
+ *   don't have a bandwidth reclaiming mechanism. Anyway,
+ *   bandwidth reclaiming is planned for the future, and
+ *   yield_task_dl will indicate that some spare budget
+ *   is available for other task instances to use it.
  */
 static void yield_task_dl(struct rq *rq)
 {
