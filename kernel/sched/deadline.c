@@ -651,17 +651,6 @@ select_task_rq_dl(struct task_struct *p, int sd_flag, int flags)
 {
 	return task_cpu(p);
 }
-
-static void set_cpus_allowed_dl(struct task_struct *p,
-				const struct cpumask *new_mask)
-{
-	int weight = cpumask_weight(new_mask);
-
-	BUG_ON(!dl_task(p));
-
-	cpumask_copy(&p->cpus_allowed, new_mask);
-	p->nr_cpus_allowed = weight;
-}
 #endif
 
 const struct sched_class dl_sched_class = {
@@ -677,8 +666,6 @@ const struct sched_class dl_sched_class = {
 
 #ifdef CONFIG_SMP
 	.select_task_rq		= select_task_rq_dl,
-
-	.set_cpus_allowed       = set_cpus_allowed_dl,
 #endif
 
 	.set_curr_task		= set_curr_task_dl,
