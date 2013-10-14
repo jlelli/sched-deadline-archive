@@ -265,7 +265,7 @@ static inline void setup_new_dl_entity(struct sched_dl_entity *dl_se,
 	 * future; in fact, we must consider execution overheads (time
 	 * spent on hardirq context, etc.).
 	 */
-	dl_se->deadline = rq->clock + pi_se->dl_deadline;
+	dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
 	dl_se->runtime = pi_se->dl_runtime;
 	dl_se->dl_new = 0;
 }
@@ -301,7 +301,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 	 * Just go with full inherited parameters.
 	 */
 	if (dl_se->dl_deadline == 0) {
-		dl_se->deadline = rq->clock + pi_se->dl_deadline;
+		dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
 		dl_se->runtime = pi_se->dl_runtime;
 	}
 
@@ -325,14 +325,14 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se,
 	 * resetting the deadline and the budget of the
 	 * entity.
 	 */
-	if (dl_time_before(dl_se->deadline, rq->clock)) {
+	if (dl_time_before(dl_se->deadline, rq_clock(rq))) {
 		static bool lag_once = false;
 
 		if (!lag_once) {
 			lag_once = true;
 			printk_sched("sched: DL replenish lagged to much\n");
 		}
-		dl_se->deadline = rq->clock + pi_se->dl_deadline;
+		dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
 		dl_se->runtime = pi_se->dl_runtime;
 	}
 }
@@ -415,9 +415,9 @@ static void update_dl_entity(struct sched_dl_entity *dl_se,
 		return;
 	}
 
-	if (dl_time_before(dl_se->deadline, rq->clock) ||
-	    dl_entity_overflow(dl_se, pi_se, rq->clock)) {
-		dl_se->deadline = rq->clock + pi_se->dl_deadline;
+	if (dl_time_before(dl_se->deadline, rq_clock(rq)) ||
+	    dl_entity_overflow(dl_se, pi_se, rq_clock(rq))) {
+		dl_se->deadline = rq_clock(rq) + pi_se->dl_deadline;
 		dl_se->runtime = pi_se->dl_runtime;
 	}
 }
@@ -450,7 +450,7 @@ static int start_dl_timer(struct sched_dl_entity *dl_se, bool boosted)
 	 */
 	act = ns_to_ktime(dl_se->deadline);
 	now = hrtimer_cb_get_time(&dl_se->dl_timer);
-	delta = ktime_to_ns(now) - rq->clock;
+	delta = ktime_to_ns(now) - rq_clock(rq);
 	act = ktime_add_ns(act, delta);
 
 	/*
@@ -541,7 +541,7 @@ void init_dl_task_timer(struct sched_dl_entity *dl_se)
 static
 int dl_runtime_exceeded(struct rq *rq, struct sched_dl_entity *dl_se)
 {
-	int dmiss = dl_time_before(dl_se->deadline, rq->clock);
+	int dmiss = dl_time_before(dl_se->deadline, rq_clock(rq));
 	int rorun = dl_se->runtime <= 0;
 
 	if (!rorun && !dmiss)
@@ -552,7 +552,7 @@ int dl_runtime_exceeded(struct rq *rq, struct sched_dl_entity *dl_se)
 	 * misses and runtime overruns.
 	 */
 	if (dmiss) {
-		u64 damount = rq->clock - dl_se->deadline;
+		u64 damount = rq_clock(rq) - dl_se->deadline;
 
 		schedstat_set(dl_se->stats.last_dmiss, damount);
 		schedstat_set(dl_se->stats.dmiss_max,
@@ -574,7 +574,7 @@ int dl_runtime_exceeded(struct rq *rq, struct sched_dl_entity *dl_se)
 	 */
 	if (dmiss) {
 		dl_se->runtime = rorun ? dl_se->runtime : 0;
-		dl_se->runtime -= rq->clock - dl_se->deadline;
+		dl_se->runtime -= rq_clock(rq) - dl_se->deadline;
 	}
 
 	return 1;
@@ -598,7 +598,7 @@ static void update_curr_dl(struct rq *rq)
 	 * observed by schedulable tasks (excluding time spent
 	 * in hardirq context, etc.)
 	 */
-	delta_exec = rq->clock_task - curr->se.exec_start;
+	delta_exec = rq_clock_task(rq) - curr->se.exec_start;
 	if (unlikely((s64)delta_exec < 0))
 		delta_exec = 0;
 
@@ -609,7 +609,7 @@ static void update_curr_dl(struct rq *rq)
 	schedstat_add(&rq->dl, exec_clock, delta_exec);
 	account_group_exec_runtime(curr, delta_exec);
 
-	curr->se.exec_start = rq->clock_task;
+	curr->se.exec_start = rq_clock_task(rq);
 	cpuacct_charge(curr, delta_exec);
 
 	sched_rt_avg_update(rq, delta_exec);
@@ -1009,7 +1009,7 @@ struct task_struct *pick_next_task_dl(struct rq *rq)
 	BUG_ON(!dl_se);
 
 	p = dl_task_of(dl_se);
-	p->se.exec_start = rq->clock_task;
+	p->se.exec_start = rq_clock_task(rq);
 
 	/* Running task will never be pushed. */
 	if (p)
@@ -1076,7 +1076,7 @@ static void set_curr_task_dl(struct rq *rq)
 {
 	struct task_struct *p = rq->curr;
 
-	p->se.exec_start = rq->clock_task;
+	p->se.exec_start = rq_clock_task(rq);
 
 	/* You can't push away the running task */
 	dequeue_pushable_dl_task(rq, p);
