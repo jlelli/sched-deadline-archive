@@ -596,7 +596,10 @@ static void update_curr_dl(struct rq *rq)
 	/*
 	 * Consumed budget is computed considering the time as
 	 * observed by schedulable tasks (excluding time spent
-	 * in hardirq context, etc.)
+	 * in hardirq context, etc.). Deadlines are instead
+	 * computed using hard walltime. This seems to be the more
+	 * natural solution, but the full ramifications of this
+	 * approach need further study.
 	 */
 	delta_exec = rq_clock_task(rq) - curr->se.exec_start;
 	if (unlikely((s64)delta_exec < 0))
