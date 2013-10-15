@@ -974,10 +974,6 @@ static void start_hrtick_dl(struct rq *rq, struct task_struct *p)
 	if (delta > 10000)
 		hrtick_start(rq, p->dl.runtime);
 }
-#else
-static void start_hrtick_dl(struct rq *rq, struct task_struct *p)
-{
-}
 #endif
 
 #ifdef CONFIG_SCHED_DEBUG
