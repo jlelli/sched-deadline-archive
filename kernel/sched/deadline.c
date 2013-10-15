@@ -102,8 +102,10 @@ static inline void dl_set_overload(struct rq *rq)
 	/*
 	 * Must be visible before the overload count is
 	 * set (as in sched_rt.c).
+	 *
+	 * Matched by the barrier in pull_dl_task().
 	 */
-	wmb();
+	smp_wmb();
 	atomic_inc(&rq->rd->dlo_count);
 }
 
@@ -1372,6 +1374,12 @@ static int pull_dl_task(struct rq *this_rq)
 
 	if (likely(!dl_overloaded(this_rq)))
 		return 0;
+
+	/*
+	 * Match the barrier from dl_set_overloaded; this guarantees that if we
+	 * see overloaded we must also see the dlo_mask bit.
+	 */
+	smp_rmb();
 
 	for_each_cpu(cpu, this_rq->rd->dlo_mask) {
 		if (this_cpu == cpu)
