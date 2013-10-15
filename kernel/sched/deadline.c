@@ -549,6 +549,7 @@ int dl_runtime_exceeded(struct rq *rq, struct sched_dl_entity *dl_se)
 	if (!rorun && !dmiss)
 		return 0;
 
+#ifdef CONFIG_SCHEDSTATS
 	/*
 	 * Record statistics about last and maximum deadline
 	 * misses and runtime overruns.
@@ -567,6 +568,7 @@ int dl_runtime_exceeded(struct rq *rq, struct sched_dl_entity *dl_se)
 		schedstat_set(dl_se->stats.rorun_max,
 			      max(dl_se->stats.rorun_max, ramount));
 	}
+#endif
 
 	/*
 	 * If we are beyond our current deadline and we are still
