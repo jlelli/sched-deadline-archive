@@ -1769,6 +1769,28 @@ unsigned long to_ratio(u64 period, u64 runtime)
 	return div64_u64(runtime << 20, period);
 }
 
+#ifdef CONFIG_SMP
+static inline struct dl_bw *dl_bw_of(int i)
+{
+	return &cpu_rq(i)->rd->dl_bw;
+}
+
+static inline int __dl_span_weight(struct rq *rq)
+{
+	return cpumask_weight(rq->rd->span);
+}
+#else
+static inline struct dl_bw *dl_bw_of(int i)
+{
+	return &cpu_rq(i)->dl.dl_bw;
+}
+
+static inline int __dl_span_weight(struct rq *rq)
+{
+	return 1;
+}
+#endif
+
 static inline
 void __dl_clear(struct dl_bw *dl_b, u64 tsk_bw)
 {
@@ -1799,19 +1821,11 @@ bool __dl_overflow(struct dl_bw *dl_b, int cpus, u64 old_bw, u64 new_bw)
 static int dl_overflow(struct task_struct *p, int policy,
 		       const struct sched_param2 *param2)
 {
-#ifdef CONFIG_SMP
-	struct dl_bw *dl_b = &task_rq(p)->rd->dl_bw;
-#else
-	struct dl_bw *dl_b = &task_rq(p)->dl.dl_bw;
-#endif
+	struct dl_bw *dl_b = dl_bw_of(task_cpu(p));
 	u64 period = param2->sched_period;
 	u64 runtime = param2->sched_runtime;
 	u64 new_bw = dl_policy(policy) ? to_ratio(period, runtime) : 0;
-#ifdef CONFIG_SMP
-	int cpus = cpumask_weight(task_rq(p)->rd->span);
-#else
-	int cpus = 1;
-#endif
+	int cpus = __dl_span_weight(task_rq(p));
 	int err = -1;
 
 	if (new_bw == p->dl.dl_bw)
@@ -4684,8 +4698,8 @@ EXPORT_SYMBOL_GPL(set_cpus_allowed_ptr);
 static inline
 bool set_task_cpu_dl(struct task_struct *p, unsigned int cpu)
 {
-	struct dl_bw *dl_b = &task_rq(p)->rd->dl_bw;
-	struct dl_bw *cpu_b = &cpu_rq(cpu)->rd->dl_bw;
+	struct dl_bw *dl_b = dl_bw_of(task_cpu(p));
+	struct dl_bw *cpu_b = dl_bw_of(cpu);
 	int ret = 1;
 	u64 bw;
 
@@ -7308,11 +7322,8 @@ static int check_dl_bw(void)
 	 * solutions is welcome!
 	 */
 	for_each_possible_cpu(i) {
-#ifdef CONFIG_SMP
-		struct dl_bw *dl_b = &cpu_rq(i)->rd->dl_bw;
-#else
-		struct dl_bw *dl_b = &cpu_rq(i)->dl.dl_bw;
-#endif
+		struct dl_bw *dl_b = dl_bw_of(i);
+
 		raw_spin_lock(&dl_b->lock);
 		if (new_bw < dl_b->total_bw) {
 			raw_spin_unlock(&dl_b->lock);
@@ -7341,11 +7352,7 @@ static void update_dl_bw(void)
 	 * FIXME: As above...
 	 */
 	for_each_possible_cpu(i) {
-#ifdef CONFIG_SMP
-		struct dl_bw *dl_b = &cpu_rq(i)->rd->dl_bw;
-#else
-		struct dl_bw *dl_b = &cpu_rq(i)->dl.dl_bw;
-#endif
+		struct dl_bw *dl_b = dl_bw_of(i);
 
 		raw_spin_lock(&dl_b->lock);
 		dl_b->bw = new_bw;
