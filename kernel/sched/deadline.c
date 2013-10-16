@@ -63,7 +63,7 @@ void init_dl_bw(struct dl_bw *dl_b)
 	raw_spin_lock_init(&dl_b->lock);
 	raw_spin_lock(&def_dl_bandwidth.dl_runtime_lock);
 	if (global_dl_runtime() == RUNTIME_INF)
-		dl_b->bw = -1;
+		dl_b->bw = ULLONG_MAX;
 	else
 		dl_b->bw = to_ratio(global_rt_period(), global_dl_runtime());
 	raw_spin_unlock(&def_dl_bandwidth.dl_runtime_lock);

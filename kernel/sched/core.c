@@ -6874,13 +6874,13 @@ void __init sched_init(void)
 #endif /* CONFIG_CPUMASK_OFFSTACK */
 	}
 
-#ifdef CONFIG_SMP
-	init_defrootdomain();
-#endif
-
 	init_rt_bandwidth(&def_rt_bandwidth,
 			global_rt_period(), global_rt_runtime());
 	init_dl_bandwidth(&def_dl_bandwidth, actual_dl_runtime());
+
+#ifdef CONFIG_SMP
+	init_defrootdomain();
+#endif
 
 #ifdef CONFIG_RT_GROUP_SCHED
 	init_rt_bandwidth(&root_task_group.rt_bandwidth,
@@ -7343,7 +7343,7 @@ static void update_dl_bw(void)
 	def_dl_bandwidth.dl_runtime = actual_dl_runtime();
 	if (def_dl_bandwidth.dl_runtime == RUNTIME_INF ||
 	    global_rt_runtime() == RUNTIME_INF)
-		new_bw = -1;
+		new_bw = ULLONG_MAX;
 	else {
 		new_bw = to_ratio(global_rt_period(),
 				  def_dl_bandwidth.dl_runtime);
