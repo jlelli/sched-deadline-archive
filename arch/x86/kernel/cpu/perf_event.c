@@ -1498,7 +1498,14 @@ static int __init init_hw_perf_events(void)
 
 	pr_info("Performance Events: ");
 
-	switch (boot_cpu_data.x86_vendor) {
+	if (boot_cpu_has(X86_FEATURE_ARCH_PERFMON)) {
+		/*
+		 * If architectural events are available
+		 * we're either run on Intel machine or
+		 * we're virtualized guest system.
+		 */
+		err = intel_pmu_init();
+	} else switch (boot_cpu_data.x86_vendor) {
 	case X86_VENDOR_INTEL:
 		err = intel_pmu_init();
 		break;
