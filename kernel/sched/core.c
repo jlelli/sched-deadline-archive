@@ -1723,6 +1723,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	hrtimer_init(&p->dl.dl_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	p->dl.dl_runtime = p->dl.runtime = 0;
 	p->dl.dl_deadline = p->dl.deadline = 0;
+	p->dl.dl_period = 0;
 	p->dl.flags = 0;
 
 	INIT_LIST_HEAD(&p->rt.run_list);
@@ -3044,6 +3045,10 @@ __setparam_dl(struct task_struct *p, const struct sched_param2 *param2)
 	init_dl_task_timer(dl_se);
 	dl_se->dl_runtime = param2->sched_runtime;
 	dl_se->dl_deadline = param2->sched_deadline;
+	if (param2->sched_period != 0)
+		dl_se->dl_period = param2->sched_period;
+	else
+		dl_se->dl_period = dl_se->dl_deadline;
 	dl_se->flags = param2->sched_flags;
 	dl_se->dl_throttled = 0;
 	dl_se->dl_new = 1;
@@ -3057,19 +3062,23 @@ __getparam_dl(struct task_struct *p, struct sched_param2 *param2)
 	param2->sched_priority = p->rt_priority;
 	param2->sched_runtime = dl_se->dl_runtime;
 	param2->sched_deadline = dl_se->dl_deadline;
+	param2->sched_period = dl_se->dl_period;
 	param2->sched_flags = dl_se->flags;
 }
 
 /*
  * This function validates the new parameters of a -deadline task.
  * We ask for the deadline not being zero, and greater or equal
- * than the runtime.
+ * than the runtime, as well as the period of being zero or
+ * greater than deadline.
  */
 static bool
 __checkparam_dl(const struct sched_param2 *prm)
 {
 	return prm && prm->sched_deadline != 0 &&
-	       (s64)(prm->sched_deadline - prm->sched_runtime) >= 0;
+		(prm->sched_period == 0 ||
+		(s64)(prm->sched_period - prm->sched_deadline) >= 0) &&
+		(s64)(prm->sched_deadline - prm->sched_runtime) >= 0;
 }
 
 /*
