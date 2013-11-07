@@ -21,4 +21,6 @@ static inline int dl_task(struct task_struct *p)
 	return dl_prio(p->prio);
 }
 
+extern inline struct dl_bw *dl_bw_of(int i);
+
 #endif /* _SCHED_DEADLINE_H */

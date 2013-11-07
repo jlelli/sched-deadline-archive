@@ -143,20 +143,20 @@ struct rt_bandwidth {
 	struct hrtimer		rt_period_timer;
 };
 /*
- * To keep the bandwidth of -deadline tasks and groups under control
- * we need some place where:
- *  - store the maximum -deadline bandwidth of the system (the group);
+ * To keep the bandwidth of -deadline tasks under control we need some
+ * place where:
+ *  - store the maximum -deadline bandwidth of the system;
  *  - cache the fraction of that bandwidth that is currently allocated.
  *
  * This is all done in the data structure below. It is similar to the
  * one used for RT-throttling (rt_bandwidth), with the main difference
  * that, since here we are only interested in admission control, we
- * do not decrease any runtime while the group "executes", neither we
+ * do not decrease any runtime while the task "executes", neither we
  * need a timer to replenish it.
  *
  * With respect to SMP, the bandwidth is given on a per-CPU basis,
  * meaning that:
- *  - dl_bw (< 100%) is the bandwidth of the system (group) on each CPU;
+ *  - dl_bw (< 100%) is the bandwidth of the system on each CPU;
  *  - dl_total_bw array contains, in the i-eth element, the currently
  *    allocated bandwidth on the i-eth CPU.
  * Moreover, groups consume bandwidth on each CPU, while tasks only
@@ -169,7 +169,6 @@ struct rt_bandwidth {
 struct dl_bandwidth {
 	raw_spinlock_t dl_runtime_lock;
 	u64 dl_runtime;
-	u64 dl_period;
 };
 
 static inline int dl_bandwidth_enabled(void)
@@ -179,10 +178,12 @@ static inline int dl_bandwidth_enabled(void)
 
 struct dl_bw {
 	raw_spinlock_t lock;
-	u64 bw, total_bw;
+	/* default value */
+	u64 bw;
+	/* allocated */
+	u64 total_bw;
 };
 
-static inline u64 global_dl_period(void);
 static inline u64 global_dl_runtime(void);
 
 extern struct mutex sched_domains_mutex;
@@ -948,11 +949,6 @@ static inline u64 global_rt_runtime(void)
 	return (u64)sysctl_sched_rt_runtime * NSEC_PER_USEC;
 }
 
-static inline u64 global_dl_period(void)
-{
-	return (u64)sysctl_sched_dl_period * NSEC_PER_USEC;
-}
-
 static inline u64 global_dl_runtime(void)
 {
 	if (sysctl_sched_dl_runtime < 0)
@@ -1216,7 +1212,7 @@ extern struct rt_bandwidth def_rt_bandwidth;
 extern void init_rt_bandwidth(struct rt_bandwidth *rt_b, u64 period, u64 runtime);
 
 extern struct dl_bandwidth def_dl_bandwidth;
-extern void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 period, u64 runtime);
+extern void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 runtime);
 extern void init_dl_task_timer(struct sched_dl_entity *dl_se);
 
 unsigned long to_ratio(u64 period, u64 runtime);
