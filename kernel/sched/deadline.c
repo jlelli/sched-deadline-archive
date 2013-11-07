@@ -48,10 +48,9 @@ static inline int is_leftmost(struct task_struct *p, struct dl_rq *dl_rq)
 	return dl_rq->rb_leftmost == &dl_se->rb_node;
 }
 
-void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 period, u64 runtime)
+void init_dl_bandwidth(struct dl_bandwidth *dl_b, u64 runtime)
 {
 	raw_spin_lock_init(&dl_b->dl_runtime_lock);
-	dl_b->dl_period = period;
 	dl_b->dl_runtime = runtime;
 }
 
@@ -62,9 +61,9 @@ void init_dl_bw(struct dl_bw *dl_b)
 	raw_spin_lock_init(&dl_b->lock);
 	raw_spin_lock(&def_dl_bandwidth.dl_runtime_lock);
 	if (global_dl_runtime() == RUNTIME_INF)
-		dl_b->bw = -1;
+		dl_b->bw = ULLONG_MAX;
 	else
-		dl_b->bw = to_ratio(global_dl_period(), global_dl_runtime());
+		dl_b->bw = to_ratio(global_rt_period(), global_dl_runtime());
 	raw_spin_unlock(&def_dl_bandwidth.dl_runtime_lock);
 	dl_b->total_bw = 0;
 }
@@ -1026,11 +1025,7 @@ static void task_fork_dl(struct task_struct *p)
 static void task_dead_dl(struct task_struct *p)
 {
 	struct hrtimer *timer = &p->dl.dl_timer;
-#ifdef CONFIG_SMP
-	struct dl_bw *dl_b = &task_rq(p)->rd->dl_bw;
-#else
-	struct dl_bw *dl_b = &task_rq(p)->dl.dl_bw;
-#endif
+	struct dl_bw *dl_b = dl_bw_of(task_cpu(p));
 
 	/*
 	 * Since we are TASK_DEAD we won't slip out of the domain!
