@@ -106,12 +106,12 @@ CONTENTS
 
  The CPU bandwidth available to -deadline tasks is actually a sub-quota of
  the -rt bandwidth. By default 95% of system bandwidth is allocate to -rt tasks;
- among this, a 40% quota is reserved for -dl tasks. To have the actual quota a
+ within this, a 40% quota is reserved for -dl tasks. To have the actual quota a
  simple multiplication is needed: .95 * .40 = .38 (38% of system bandwidth for
  deadline tasks).
 
  This means that, for a root_domain comprising M CPUs, -deadline tasks
- can be created until the sum of their bandwidths stay below:
+ can be created while the sum of their bandwidths stays below:
 
    M * (sched_dl_runtime_us * rt_bw)
 
@@ -143,7 +143,7 @@ CONTENTS
 ---------------------
 
 The default value for SCHED_DEADLINE bandwidth is to have dl_runtime equal to
-40000. Being rt_period equal to 1000000, by default, it means that -deadline
+40000. With rt_period equal to 1000000, by default, it means that -deadline
 tasks can use at most 40%, multiplied by the number of CPUs that compose the
 root_domain, for each root_domain.
 
@@ -183,7 +183,7 @@ Still missing:
 
  - refinements to deadline inheritance, especially regarding the possibility
    of retaining bandwidth isolation among non-interacting tasks. This is
-   being studied from both theoretical and practical point of views, and
+   being studied from both theoretical and practical points of view, and
    hopefully we should be able to produce some demonstrative code soon;
  - (c)group based bandwidth management, and maybe scheduling;
  - access control for non-root users (and related security concerns to
