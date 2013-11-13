@@ -3260,7 +3260,6 @@ do_sched_setscheduler2(pid_t pid, int policy,
 	if (!param2 || pid < 0)
 		return -EINVAL;
 
-	memset(&lparam2, 0, sizeof(struct sched_param2));
 	if (copy_from_user(&lparam2, param2, sizeof(struct sched_param2)))
 		return -EFAULT;
 
@@ -3413,6 +3412,8 @@ SYSCALL_DEFINE2(sched_getparam2, pid_t, pid, struct sched_param2 __user *, param
 
 	if (!param2 || pid < 0)
 		return -EINVAL;
+
+	memset(&lp, 0, sizeof(struct sched_param2));
 
 	rcu_read_lock();
 	p = find_process_by_pid(pid);
