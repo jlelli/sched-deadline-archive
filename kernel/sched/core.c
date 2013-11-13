@@ -3678,11 +3678,9 @@ recheck:
 
 	oldprio = p->prio;
 	prev_class = p->sched_class;
-	if (dl_policy(policy)) {
+	if (dl_policy(policy))
 		__setparam_dl(p, param);
-		__setscheduler(rq, p, policy, param->sched_priority);
-	} else
-		__setscheduler(rq, p, policy, param->sched_priority);
+	__setscheduler(rq, p, policy, param->sched_priority);
 
 	if (running)
 		p->sched_class->set_curr_task(rq);
