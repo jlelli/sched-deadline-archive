@@ -3066,8 +3066,8 @@ __getparam_dl(struct task_struct *p, struct sched_param2 *param2)
 static bool
 __checkparam_dl(const struct sched_param2 *prm)
 {
-	return prm && (&prm->sched_deadline) != 0 &&
-	       (s64)(&prm->sched_deadline - &prm->sched_runtime) >= 0;
+	return prm && prm->sched_deadline != 0 &&
+	       (s64)(prm->sched_deadline - prm->sched_runtime) >= 0;
 }
 
 /*
