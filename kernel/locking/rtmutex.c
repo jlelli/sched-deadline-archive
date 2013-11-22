@@ -96,13 +96,16 @@ static inline int
 rt_mutex_waiter_less(struct rt_mutex_waiter *left,
 		     struct rt_mutex_waiter *right)
 {
-	if (left->task->prio < right->task->prio)
+	if (left->prio < right->prio)
 		return 1;
 
 	/*
-	 * If both tasks are dl_task(), we check their deadlines.
+	 * If both waiters have dl_prio(), we check the deadlines of the
+	 * associated tasks.
+	 * If left waiter has a dl_prio(), and we didn't return 1 above,
+	 * then right waiter has a dl_prio() too.
 	 */
-	if (dl_prio(left->task->prio) && dl_prio(right->task->prio))
+	if (dl_prio(left->prio))
 		return (left->task->dl.deadline < right->task->dl.deadline);
 
 	return 0;
