@@ -1023,16 +1023,16 @@ trace_selftest_startup_nop(struct tracer *trace, struct trace_array *tr)
 static int trace_wakeup_test_thread(void *data)
 {
 	/* Make this a -deadline thread */
-	struct sched_param2 paramx = {
+	static const struct sched_param2 param = {
 		.sched_priority = 0,
+		.sched_flags = 0,
 		.sched_runtime = 100000ULL,
 		.sched_deadline = 10000000ULL,
 		.sched_period = 10000000ULL
-		.sched_flags = 0
 	};
 	struct completion *x = data;
 
-	sched_setscheduler2(current, SCHED_DEADLINE, &paramx);
+	sched_setscheduler2(current, SCHED_DEADLINE, &param);
 
 	/* Make it know we have a new prio */
 	complete(x);
@@ -1088,19 +1088,19 @@ trace_selftest_startup_wakeup(struct tracer *trace, struct trace_array *tr)
 
 	while (p->on_rq) {
 		/*
-		 * Sleep to make sure the RT thread is asleep too.
+		 * Sleep to make sure the -deadline thread is asleep too.
 		 * On virtual machines we can't rely on timings,
 		 * but we want to make sure this test still works.
 		 */
 		msleep(100);
 	}
 
-	init_completion(&isrt);
+	init_completion(&is_ready);
 
 	wake_up_process(p);
 
 	/* Wait for the task to wake up */
-	wait_for_completion(&isrt);
+	wait_for_completion(&is_ready);
 
 	/* stop the tracing. */
 	tracing_stop();
