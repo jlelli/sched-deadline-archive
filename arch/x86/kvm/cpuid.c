@@ -392,13 +392,6 @@ static inline int __do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 
 		perf_get_x86_pmu_capability(&cap);
 
-		/*
-		 * Only support guest architectural pmu on a host
-		 * with architectural pmu.
-		 */
-		if (!cap.version)
-			memset(&cap, 0, sizeof(cap));
-
 		eax.split.version_id = min(cap.version, 2);
 		eax.split.num_counters = cap.num_counters_gp;
 		eax.split.bit_width = cap.bit_width_gp;

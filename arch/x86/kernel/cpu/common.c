@@ -727,6 +727,16 @@ static void __init early_identify_cpu(struct cpuinfo_x86 *c)
 		this_cpu->c_bsp_init(c);
 
 	setup_force_cpu_cap(X86_FEATURE_ALWAYS);
+	/*
+	 * If we're virtualized, ask the host kernel
+	 * if architectural the performance monitoring
+	 * is supported.
+	 */
+	if (cpu_has(c, X86_FEATURE_HYPERVISOR)) {
+		unsigned eax = cpuid_eax(10);
+		if ((eax & 0xff) && (((eax >> 8) & 0xff) > 1))
+			setup_force_cpu_cap(X86_FEATURE_ARCH_PERFMON);
+	}
 }
 
 void __init early_cpu_init(void)

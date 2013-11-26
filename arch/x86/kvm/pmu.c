@@ -447,6 +447,65 @@ int kvm_pmu_read_pmc(struct kvm_vcpu *vcpu, unsigned pmc, u64 *data)
 	return 0;
 }
 
+/*
+ * Write an CPUID 0AH leaf that matches our emulation capabilities.
+ */
+static void kvm_pmu_write_cpuid_leaf_perfmon(struct kvm_cpuid_entry2 *entry)
+{
+	struct x86_pmu_capability x86_cap;
+
+	union perfmon_eax {
+		struct {
+			u32 version		: 8;
+			u32 counters		: 8;
+			u32 width		: 8;
+			u32 ebx_len		: 8;
+		} split;
+		u32 full;
+	} perfmon_eax;
+
+	/* Not available events */
+	union perfmon_ebx {
+		struct {
+			u32 core_cycle_na	: 1;
+			u32 inst_ret_na		: 1;
+			u32 ref_cycle_na	: 1;
+			u32 llc_ref_na		: 1;
+			u32 llc_miss_na		: 1;
+			u32 br_ret_na		: 1;
+			u32 br_miss_na		: 1;
+		} split;
+		u32 full;
+	} perfmon_ebx = { .full = 0 };
+
+	union perfmon_edx {
+		struct {
+			u32 fixed_counters	: 5;
+			u32 fixed_width		: 8;
+		} split;
+		u32 full;
+	} perfmon_edx;
+
+	perf_get_x86_pmu_capability(&x86_cap);
+
+	perfmon_eax = (union perfmon_eax) {
+		.split.version		= 2,
+		.split.counters		= x86_cap.num_counters_gp,
+		.split.width		= x86_cap.bit_width_gp,
+		.split.ebx_len		= 7,
+	};
+
+	perfmon_edx = (union perfmon_edx) {
+		.split.fixed_counters	= x86_cap.num_counters_fixed,
+		.split.fixed_width	= x86_cap.bit_width_fixed,
+	};
+
+	entry->eax = perfmon_eax.full;
+	entry->ebx = perfmon_ebx.full;
+	entry->ecx = 0; /* Reserved, must be 0 */
+	entry->edx = perfmon_edx.full;
+}
+
 void kvm_pmu_cpuid_update(struct kvm_vcpu *vcpu)
 {
 	struct kvm_pmu *pmu = &vcpu->arch.pmu;
@@ -463,6 +522,13 @@ void kvm_pmu_cpuid_update(struct kvm_vcpu *vcpu)
 	entry = kvm_find_cpuid_entry(vcpu, 0xa, 0);
 	if (!entry)
 		return;
+
+	/*
+	 * If leaf 10 has not been disabled in the
+	 * guest, report that we support architectural
+	 * events at least.
+	 */
+	kvm_pmu_write_cpuid_leaf_perfmon(entry);
 
 	pmu->version = entry->eax & 0xff;
 	if (!pmu->version)
