@@ -300,6 +300,8 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	if (!dl_task(p) || dl_se->dl_new)
 		goto unlock;
 
+	sched_clock_tick();
+	update_rq_clock(rq);
 	dl_se->dl_throttled = 0;
 	if (p->on_rq) {
 		enqueue_task_dl(rq, p, ENQUEUE_REPLENISH);
