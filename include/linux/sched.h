@@ -56,6 +56,8 @@ struct sched_param {
 
 #include <asm/processor.h>
 
+#define SCHED_ATTR_SIZE_VER0	40	/* sizeof first published struct */
+
 /*
  * Extended scheduling parameters data structure.
  *
@@ -67,7 +69,7 @@ struct sched_param {
  * the tasks may be useful for a wide variety of application fields, e.g.,
  * multimedia, streaming, automation and control, and many others.
  *
- * This variant (sched_param2) is meant at describing a so-called
+ * This variant (sched_attr) is meant at describing a so-called
  * sporadic time-constrained task. In such model a task is specified by:
  *  - the activation period or minimum instance inter-arrival time;
  *  - the maximum (or average, depending on the actual scheduling
@@ -80,28 +82,30 @@ struct sched_param {
  * than the runtime and must be completed by time instant t equal to
  * the instance activation time + the deadline.
  *
- * This is reflected by the actual fields of the sched_param2 structure:
+ * This is reflected by the actual fields of the sched_attr structure:
  *
  *  @sched_priority     task's priority (might still be useful)
+ *  @sched_flags        for customizing the scheduler behaviour
  *  @sched_deadline     representative of the task's deadline
  *  @sched_runtime      representative of the task's runtime
  *  @sched_period       representative of the task's period
- *  @sched_flags        for customizing the scheduler behaviour
  *
  * Given this task model, there are a multiplicity of scheduling algorithms
  * and policies, that can be used to ensure all the tasks will make their
  * timing constraints.
  *
- * @__unused		padding to allow future expansion without ABI issues
+ *  @size		size of the structure, for fwd/bwd compat.
  */
-struct sched_param2 {
+struct sched_attr {
 	int sched_priority;
 	unsigned int sched_flags;
 	u64 sched_runtime;
 	u64 sched_deadline;
 	u64 sched_period;
+	u32 size;
 
-	u64 __unused[12];
+	/* Align to u64. */
+	u32 __reserved;
 };
 
 struct exec_domain;
@@ -2009,7 +2013,7 @@ extern int sched_setscheduler(struct task_struct *, int,
 extern int sched_setscheduler_nocheck(struct task_struct *, int,
 				      const struct sched_param *);
 extern int sched_setscheduler2(struct task_struct *, int,
-				 const struct sched_param2 *);
+				 const struct sched_attr *);
 extern struct task_struct *idle_task(int cpu);
 /**
  * is_idle_task - is the specified task an idle task?
