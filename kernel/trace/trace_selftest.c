@@ -1023,16 +1023,14 @@ trace_selftest_startup_nop(struct tracer *trace, struct trace_array *tr)
 static int trace_wakeup_test_thread(void *data)
 {
 	/* Make this a -deadline thread */
-	static const struct sched_param2 param = {
-		.sched_priority = 0,
-		.sched_flags = 0,
+	static const struct sched_attr attr = {
 		.sched_runtime = 100000ULL,
 		.sched_deadline = 10000000ULL,
 		.sched_period = 10000000ULL
 	};
 	struct completion *x = data;
 
-	sched_setscheduler2(current, SCHED_DEADLINE, &param);
+	sched_setscheduler2(current, SCHED_DEADLINE, &attr);
 
 	/* Make it know we have a new prio */
 	complete(x);
