@@ -1930,11 +1930,11 @@ bool __dl_overflow(struct dl_bw *dl_b, int cpus, u64 old_bw, u64 new_bw)
  * This function is called while holding p's rq->lock.
  */
 static int dl_overflow(struct task_struct *p, int policy,
-		       const struct sched_param2 *param2)
+		       const struct sched_attr *attr)
 {
 	struct dl_bw *dl_b = dl_bw_of(task_cpu(p));
-	u64 period = param2->sched_period;
-	u64 runtime = param2->sched_runtime;
+	u64 period = attr->sched_period;
+	u64 runtime = attr->sched_runtime;
 	u64 new_bw = dl_policy(policy) ? to_ratio(period, runtime) : 0;
 	int cpus = __dl_span_weight(task_rq(p));
 	int err = -1;
@@ -3173,33 +3173,33 @@ __setscheduler(struct rq *rq, struct task_struct *p, int policy, int prio)
  * for the first time with its new policy.
  */
 static void
-__setparam_dl(struct task_struct *p, const struct sched_param2 *param2)
+__setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 {
 	struct sched_dl_entity *dl_se = &p->dl;
 
 	init_dl_task_timer(dl_se);
-	dl_se->dl_runtime = param2->sched_runtime;
-	dl_se->dl_deadline = param2->sched_deadline;
-	if (param2->sched_period != 0)
-		dl_se->dl_period = param2->sched_period;
+	dl_se->dl_runtime = attr->sched_runtime;
+	dl_se->dl_deadline = attr->sched_deadline;
+	if (attr->sched_period != 0)
+		dl_se->dl_period = attr->sched_period;
 	else
 		dl_se->dl_period = dl_se->dl_deadline;
 	dl_se->dl_bw = to_ratio(dl_se->dl_period, dl_se->dl_runtime);
-	dl_se->flags = param2->sched_flags;
+	dl_se->flags = attr->sched_flags;
 	dl_se->dl_throttled = 0;
 	dl_se->dl_new = 1;
 }
 
 static void
-__getparam_dl(struct task_struct *p, struct sched_param2 *param2)
+__getparam_dl(struct task_struct *p, struct sched_attr *attr)
 {
 	struct sched_dl_entity *dl_se = &p->dl;
 
-	param2->sched_priority = p->rt_priority;
-	param2->sched_runtime = dl_se->dl_runtime;
-	param2->sched_deadline = dl_se->dl_deadline;
-	param2->sched_period = dl_se->dl_period;
-	param2->sched_flags = dl_se->flags;
+	attr->sched_priority = p->rt_priority;
+	attr->sched_runtime = dl_se->dl_runtime;
+	attr->sched_deadline = dl_se->dl_deadline;
+	attr->sched_period = dl_se->dl_period;
+	attr->sched_flags = dl_se->flags;
 }
 
 /*
@@ -3211,7 +3211,7 @@ __getparam_dl(struct task_struct *p, struct sched_param2 *param2)
  * check sched_runtime only since it is always the smaller one.
  */
 static bool
-__checkparam_dl(const struct sched_param2 *prm)
+__checkparam_dl(const struct sched_attr *prm)
 {
 	return prm && prm->sched_deadline != 0 &&
 		(prm->sched_period == 0 ||
