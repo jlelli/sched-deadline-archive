@@ -7200,6 +7200,7 @@ static u64 actual_dl_runtime(void)
 
 static int check_dl_bw(void)
 {
+	unsigned long flags;
 	int i;
 	u64 period = global_rt_period();
 	u64 dl_actual_runtime = def_dl_bandwidth.dl_runtime;
@@ -7217,12 +7218,12 @@ static int check_dl_bw(void)
 	for_each_possible_cpu(i) {
 		struct dl_bw *dl_b = dl_bw_of(i);
 
-		raw_spin_lock(&dl_b->lock);
+		raw_spin_lock_irqsave(&dl_b->lock, flags);
 		if (new_bw < dl_b->total_bw) {
 			raw_spin_unlock(&dl_b->lock);
 			return -EBUSY;
 		}
-		raw_spin_unlock(&dl_b->lock);
+		raw_spin_unlock_irqrestore(&dl_b->lock, flags);
 	}
 
 	return 0;
