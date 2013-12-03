@@ -3249,7 +3249,7 @@ do_sched_setscheduler(pid_t pid, int policy, struct sched_param __user *param)
 }
 
 /*
- * Mimics kerner/events/core.c perf_copy_attr().
+ * Mimics kernel/events/core.c perf_copy_attr().
  */
 static int sched_copy_attr(struct sched_attr __user *uattr,
 			   struct sched_attr *attr)
@@ -3465,18 +3465,65 @@ out_unlock:
 	return retval;
 }
 
+static int sched_read_attr(struct sched_attr __user *uattr,
+			   struct sched_attr *attr,
+			   unsigned int size,
+			   unsigned int usize)
+{
+	int ret;
+
+	if (!access_ok(VERIFY_WRITE, uattr, SCHED_ATTR_SIZE_VER0))
+		return -EFAULT;
+
+	/*
+	 * zero the full structure, so that a short copy will be nice.
+	 */
+	memset(uattr, 0, sizeof(*uattr));
+
+	/*
+	 * If we're handed a smaller struct than we know of,
+	 * ensure all the unknown bits are 0 - i.e. old
+	 * user-space does not get uncomplete information.
+	 */
+	if (usize < sizeof(*attr)) {
+		unsigned char *addr;
+		unsigned char *end;
+
+		addr = (void *)attr + usize;
+		end  = (void *)attr + size;
+
+		for (; addr < end; addr++)
+			if (*addr)
+				goto err_size;
+	}
+
+	ret = copy_to_user(uattr, attr, usize);
+	if (ret)
+		return -EFAULT;
+
+out:
+	return ret;
+
+err_size:
+	ret = -E2BIG;
+	goto out;
+}
+
 /**
  * sys_sched_getattr - same as above, but with extended "sched_param"
  * @pid: the pid in question.
  * @attr: structure containing the extended parameters.
+ * @size: sizeof(attr) for fwd/bwd comp.
  */
-SYSCALL_DEFINE2(sched_getattr, pid_t, pid, struct sched_attr __user *, attr)
+SYSCALL_DEFINE3(sched_getattr, pid_t, pid, struct sched_attr __user *, attr,
+		unsigned int, size)
 {
 	struct sched_attr lp;
 	struct task_struct *p;
 	int retval;
 
-	if (!attr || pid < 0)
+	if (!attr || pid < 0 || size > PAGE_SIZE ||
+	    size < SCHED_ATTR_SIZE_VER0)
 		return -EINVAL;
 
 	memset(&lp, 0, sizeof(struct sched_attr));
@@ -3494,7 +3541,7 @@ SYSCALL_DEFINE2(sched_getattr, pid_t, pid, struct sched_attr __user *, attr)
 	lp.sched_priority = p->rt_priority;
 	rcu_read_unlock();
 
-	retval = copy_to_user(attr, &lp, sizeof(lp)) ? -EFAULT : 0;
+	retval = sched_read_attr(attr, &lp, sizeof(lp), size);
 	return retval;
 
 out_unlock:
