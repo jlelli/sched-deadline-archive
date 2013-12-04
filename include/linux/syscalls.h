@@ -38,7 +38,7 @@ struct rlimit;
 struct rlimit64;
 struct rusage;
 struct sched_param;
-struct sched_param2;
+struct sched_attr;
 struct sel_arg_struct;
 struct semaphore;
 struct sembuf;
