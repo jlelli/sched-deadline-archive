@@ -3472,13 +3472,8 @@ static int sched_read_attr(struct sched_attr __user *uattr,
 {
 	int ret;
 
-	if (!access_ok(VERIFY_WRITE, uattr, SCHED_ATTR_SIZE_VER0))
+	if (!access_ok(VERIFY_WRITE, uattr, usize))
 		return -EFAULT;
-
-	/*
-	 * zero the full structure, so that a short copy will be nice.
-	 */
-	memset(uattr, 0, sizeof(*uattr));
 
 	/*
 	 * If we're handed a smaller struct than we know of,
